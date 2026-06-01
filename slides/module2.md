@@ -10,9 +10,9 @@ Elephant Scale
 - KRaft — ZooKeeper-free Kafka architecture
 - Controller quorum and metadata management
 - Partition assignment and leader election
-- In-Sync Replicas (ISR)
+- In-Sync Replicas (ISR) and Eligible Leader Replicas (KIP-966)
 - Producer internals
-- Consumer internals
+- Consumer internals and the KIP-848 rebalance protocol
 - Exactly-once semantics and transactions
 
 ---
@@ -90,9 +90,9 @@ Compacted topics guarantee **at least the last value per key** is retained forev
 
 ---
 
-## ZooKeeper vs KRaft
+## ZooKeeper → KRaft
 
-**Legacy (ZooKeeper mode):**
+**Legacy (ZooKeeper mode — historical context only):**
 ```
 ZooKeeper Ensemble (3–5 nodes)
     │  (stores cluster metadata)
@@ -101,7 +101,7 @@ Kafka Brokers  ←→  Controller Broker
                    (elected via ZK)
 ```
 
-**Modern (KRaft mode — Kafka 3.3+ production-ready):**
+**KRaft mode — the only mode in Kafka 4:**
 ```
 Kafka Brokers + KRaft Controllers
     │  (metadata stored in a Raft log inside Kafka itself)
@@ -109,7 +109,7 @@ Kafka Brokers + KRaft Controllers
 No external dependency!
 ```
 
-ZooKeeper is **deprecated** and will be removed in a future release.
+> **ZooKeeper was fully removed in Apache Kafka 4.0.** Every Kafka 4 cluster runs KRaft. ZooKeeper is shown here only so you recognize it in older deployments and migration projects.
 
 ---
 
@@ -167,6 +167,12 @@ Key configs:
 - `replica.lag.time.max.ms` — max time a follower can be behind before removed from ISR
 - `min.insync.replicas` — minimum ISR size required to accept writes (e.g., 2)
 - `acks=all` — producer waits for all ISR members to acknowledge
+
+**New in Kafka 4 — Eligible Leader Replicas (KIP-966, preview):**
+- The controller now also tracks replicas that left the ISR but are *known to hold data up to the high watermark* — the **ELR**
+- On a clean election with an empty ISR, a replica from the ELR can be elected **without data loss** — fixing the old "last replica standing" unclean-election dilemma
+- Separates the *replication* quorum (ISR, known to the leader) from the *election* quorum (ISR + ELR, known to the controller)
+- Enabled by default on new Kafka 4 clusters
 
 ---
 
@@ -266,7 +272,8 @@ Consumer joins or leaves → GROUP REBALANCE
 
 Rebalance types:
 - **Eager** (stop-the-world) — all consumers stop, reassign
-- **Cooperative** (incremental) — only affected partitions move
+- **Cooperative** (incremental, client-side) — only affected partitions move
+- **New consumer protocol (KIP-848, GA in Kafka 4)** — the *broker* coordinates the assignment instead of a client-side leader. Rebalances become incremental and far less disruptive; opt in per group via `group.protocol=consumer`
 
 ---
 
@@ -309,6 +316,8 @@ Application
 
 Config: `transactional.id=unique-producer-id`, `isolation.level=read_committed`
 
+> **Kafka 4 hardening (KIP-890):** the transaction protocol was reworked to close long-standing correctness gaps (notably "hanging transactions"), adding per-transaction epoch verification between client and broker. Existing transactional code keeps working — it just gets stronger guarantees.
+
 ---
 
 ## The `__consumer_offsets` Topic
@@ -317,10 +326,12 @@ Internal topic that stores all committed consumer offsets:
 
 ```bash
 # Inspect offset commits
+# Kafka 4 moved these internal formatters to the org.apache.kafka.tools.consumer
+# package; the old kafka.coordinator.* Scala formatters were removed.
 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic __consumer_offsets \
-  --formatter kafka.coordinator.group.GroupMetadataManager$OffsetsMessageFormatter \
+  --formatter org.apache.kafka.tools.consumer.OffsetsMessageFormatter \
   --from-beginning
 ```
 
@@ -355,22 +366,22 @@ Used by the broker to:
 
 - Kafka stores data as append-only log segments with offset and time indexes
 - Log compaction preserves the latest value per key indefinitely
-- KRaft replaces ZooKeeper — metadata stored in a Kafka Raft log
-- ISR ensures only fully-caught-up replicas can become leaders
+- KRaft replaces ZooKeeper entirely in Kafka 4 — metadata stored in a Kafka Raft log
+- ISR ensures only fully-caught-up replicas can become leaders; ELR (KIP-966) extends safe election to known-good replicas outside the ISR
 - Producer batching, compression, and idempotence are key to throughput and correctness
-- Consumer groups coordinate partition assignment via rebalance protocols
-- Exactly-once semantics require transactional producers + `read_committed` consumers
+- Consumer groups coordinate partition assignment via rebalance protocols — including the new broker-coordinated KIP-848 protocol
+- Exactly-once semantics require transactional producers + `read_committed` consumers, hardened by KIP-890 in Kafka 4
 
 ---
 
 ## What's Next
 
-**Module 3 — Advanced Topic Design & Data Modeling**
+**Module 3 — Kafka Operations & Observability**
 
-- Partition key selection and skew avoidance
-- Schema evolution with Avro, Protobuf, JSON Schema
-- Tiered storage and topic lifecycle
-- Cross-cluster replication with MirrorMaker 2
+- The metrics that matter: under-replicated partitions, consumer lag, ISR shrink rate
+- Monitoring stack: Prometheus, Grafana, Kafka UI
+- Operational procedures: retention, offset resets, security ops
+- Incident triage runbooks and alerting
 
 ---
 
@@ -382,10 +393,10 @@ You will:
 1. Inspect `__consumer_offsets` and `__transaction_state`
 2. Trace a transactional producer's commit sequence
 3. Observe ISR changes during a simulated broker failure
-4. Examine log segment files on disk
+4. Examine log segment files on disk and the KRaft metadata log
 
-Environment: Docker Compose Kafka cluster
-Time: 45 minutes
+Environment: KRaft Kafka 4 cluster (Docker Compose)
+Time: ~60 minutes
 
 ---
 

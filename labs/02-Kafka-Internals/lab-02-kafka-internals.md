@@ -1,8 +1,9 @@
 # Lab 2 — Examining Kafka Internals
 
 **Module:** 2 — Kafka Internals & Cluster Architecture
-**Duration:** 45–60 minutes
+**Duration:** 60–75 minutes
 **Difficulty:** Intermediate
+**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 
@@ -107,12 +108,18 @@ k1 kafka-console-consumer.sh \
 
 ### 2.2 Read the `__consumer_offsets` topic
 
+> Kafka 4 moved this formatter to the `org.apache.kafka.tools.consumer` package.
+> The old `kafka.coordinator.group.GroupMetadataManager$OffsetsMessageFormatter`
+> class was removed in 4.0 and will throw `ClassNotFoundException`.
+> `--timeout-ms` stops the consumer once the topic is drained (it never ends on its own).
+
 ```bash
 k1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic __consumer_offsets \
-  --formatter kafka.coordinator.group.GroupMetadataManager\$OffsetsMessageFormatter \
+  --formatter org.apache.kafka.tools.consumer.OffsetsMessageFormatter \
   --from-beginning \
+  --timeout-ms 10000 \
   2>/dev/null | grep lab2-group
 ```
 
@@ -220,12 +227,15 @@ python txn_consumer.py
 
 ### 3.3 Observe `__transaction_state`
 
+> Kafka 4: formatter relocated to `org.apache.kafka.tools.consumer` (old Scala class removed).
+
 ```bash
 k1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic __transaction_state \
-  --formatter kafka.coordinator.transaction.TransactionLog\$TransactionLogMessageFormatter \
+  --formatter org.apache.kafka.tools.consumer.TransactionLogMessageFormatter \
   --from-beginning \
+  --timeout-ms 10000 \
   2>/dev/null | head -20
 ```
 
@@ -281,10 +291,22 @@ k1 kafka-console-consumer.sh \
 
 **Note:** True deduplication requires the same `producer_id + sequence_number`. In this simulation, `flush()` between sends means each is a new request. True dedup happens on network-level retries within the same producer session.
 
+### 4.2 See the PID and sequence numbers on disk
+
+The idempotence metadata is written into the record batch headers. Dump the log
+to see the `producerId`, `producerEpoch`, and `baseSequence` Kafka uses to dedup:
+
+```bash
+k1 kafka-dump-log.sh \
+  --files /var/lib/kafka/data/internals-test-0/00000000000000000000.log \
+  --print-data-log \
+  | grep -E 'producerId|baseSequence' | tail -5
+```
+
 **Questions:**
-1. What is the `producer_id` (PID) assigned to our producer?
-2. How does Kafka detect duplicate messages?
-3. What is the sequence number, and how does it increment?
+1. What `producerId` (PID) was assigned to our producer? (Read it from the dump above — `-1` means a non-idempotent batch.)
+2. How does Kafka use `producerId + producerEpoch + baseSequence` to detect duplicates?
+3. How does the sequence number increment across the three sends?
 
 ---
 
@@ -315,14 +337,25 @@ Observe: partitions where broker-2 was in ISR will show ISR shrinking after `rep
 
 ### 5.3 Produce while a broker is down
 
+First, enforce `min.insync.replicas=2` **on the topic** — this is a topic/broker
+config, *not* a producer client setting. (Passing it to the producer would throw
+`No such configuration property: "min.insync.replicas"`.) The producer's only job
+is to request `acks=all`; the broker then refuses the write if fewer than 2
+replicas are in sync.
+
+```bash
+k1 kafka-configs.sh --bootstrap-server localhost:9092 \
+  --alter --entity-type topics --entity-name orders \
+  --add-config min.insync.replicas=2
+```
+
 ```python
 # producer_test.py
 from confluent_kafka import Producer
 
 conf = {
     'bootstrap.servers': 'localhost:9092',
-    'acks': 'all',
-    'min.insync.replicas': 2,  # requires 2 in-sync replicas
+    'acks': 'all',                 # broker enforces min.insync.replicas (set on the topic)
     'request.timeout.ms': 5000,
 }
 producer = Producer(conf)
@@ -346,9 +379,28 @@ producer.flush()
 docker compose start kafka-2
 ```
 
+### 5.4 Observe Eligible Leader Replicas (Kafka 4, KIP-966)
+
+Kafka 4 tracks an **ELR** — replicas that have dropped out of the ISR but are
+known to still hold data up to the high watermark, so they can be elected leader
+without data loss. `--describe` exposes it once the feature is active:
+
+```bash
+k1 kafka-topics.sh --bootstrap-server localhost:9092 \
+  --describe --topic orders | grep -E 'Elr|Isr'
+```
+
+**Questions:**
+1. When broker-2 left the ISR above, did its replicas appear in the `Elr` column?
+2. How does ELR change the safety of a clean leader election when the ISR is empty?
+3. What problem ("last replica standing") did Kafka have *before* ELR existed?
+
+> If the `Elr` column is absent, the cluster's `metadata.version` predates ELR
+> activation — note this as an environment check for your instructor.
+
 ---
 
-## Exercise 6 — KRaft Metadata Log (if KRaft mode)
+## Exercise 6 — KRaft Metadata Log
 
 ```bash
 # View KRaft metadata log
@@ -381,8 +433,9 @@ You have explored:
 - Raw log segment files: `.log`, `.index`, `.timeindex`
 - `__consumer_offsets`: how consumer positions are durably stored
 - `__transaction_state`: how transactional producers track commit state
-- Idempotent producer: duplicate prevention via PID + sequence number
+- Idempotent producer: duplicate prevention via PID + sequence number (read off disk)
 - ISR dynamics: how ISR shrinks during broker failures and recovers on restart
+- Eligible Leader Replicas (KIP-966): safe leader election beyond the ISR in Kafka 4
 - KRaft metadata log: cluster metadata stored inside Kafka itself
 
 **Key takeaway:** Kafka's reliability guarantees are built on a few well-designed internal mechanisms — append-only logs, ISR replication, and atomic transactions. Understanding these helps you tune and debug production issues with confidence.
@@ -394,7 +447,8 @@ You have explored:
 1. What three files make up a Kafka log segment, and what does each contain?
 2. Under what conditions is a replica removed from the ISR?
 3. What is the difference between `acks=1` and `acks=all`?
-4. What does `min.insync.replicas=2` mean, and when does it matter?
+4. What does `min.insync.replicas=2` mean, on which entity is it configured, and when does it matter?
+5. How do Eligible Leader Replicas (KIP-966) make a clean leader election safe when the ISR has emptied?
 
 ---
 

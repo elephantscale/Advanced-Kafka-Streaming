@@ -26,7 +26,7 @@ Use cases that demand real-time streaming:
 - Personalization engines (act while the user is still on the page)
 - Supply chain event tracking
 
-> Batch processing is dead for latency-sensitive workloads.
+> Streaming complements batch rather than replacing it — and the boundary is blurring (lakehouse, Iceberg, stream/batch convergence).
 
 ---
 
@@ -36,7 +36,7 @@ Kafka is a **distributed event streaming platform**.
 
 Core capabilities:
 - **Publish and subscribe** to streams of events
-- **Store** events durably and reliably
+- **Store** events durably and reliably — including **Tiered Storage** (KIP-405, GA in Kafka 4), which offloads older segments to object storage for low-cost long-term retention
 - **Process** events as they occur
 
 Key design goals:
@@ -44,6 +44,8 @@ Key design goals:
 - Low latency (milliseconds)
 - Fault tolerance (replication)
 - Horizontal scalability
+
+> **Kafka 4 is KRaft-only** — ZooKeeper has been fully removed. Cluster metadata now lives in an internal Kafka log managed by a built-in controller quorum.
 
 ---
 
@@ -78,7 +80,7 @@ Kafka is the **central nervous system** of the modern data platform.
  Kafka Streams  Stream processing library (JVM)
  ksqlDB  SQL interface for stream processing
  Schema Registry  Schema management (Avro, Protobuf, JSON Schema)
- Monitoring Layer  Prometheus, Grafana, Burrow, Cruise Control
+ Monitoring Layer  Prometheus, Grafana, Kafka UI, Cruise Control
  Security Layer  TLS, SASL, ACLs, RBAC
 
 ---
@@ -98,6 +100,8 @@ Kafka is the **central nervous system** of the modern data platform.
 **Consumer Group** — a set of consumers that share the work of reading a topic
 
 **Broker** — a Kafka server that stores and serves partitions
+
+> Kafka 4 ships a new **server-side consumer rebalance protocol (KIP-848)** that replaces stop-the-world rebalances with incremental, broker-coordinated reassignment. (Mechanics in Module 5.)
 
 ---
 
@@ -135,7 +139,12 @@ Analytics │ Data Lake │ Microservices │ AI Pipelines
  Durability  Varies  Configurable replication
  Backpressure  Built-in  Consumer controls its own pace
 
-> Kafka supports **both** patterns since Apache Kafka 3.x queue semantics additions.
+**Native queues — Share Groups (KIP-932, Kafka 4):**
+- Multiple consumers read from the **same partitions** cooperatively (no partition-to-consumer binding)
+- **Per-message acknowledgement** and redelivery — true queue semantics, not just competing consumer groups
+- Lets one platform serve both stream (replay, fan-out) and queue (work-distribution) workloads
+
+> Early access in Kafka 4.0; enable explicitly. Hands-on in Lab 1.
 
 ---
 
@@ -224,6 +233,8 @@ HAVING SUM(amount) > 10000;
 
 Queries run **continuously** — results update as new events arrive.
 
+> **2026 direction:** Confluent has de-emphasized ksqlDB in favor of **Flink SQL**, which offers the same continuous-SQL model with a richer engine and broader ecosystem. Flink is provisioned in this course's lab environment.
+
 ---
 
 ## Schema Registry
@@ -244,6 +255,7 @@ Benefits:
 - Schema evolution without breaking consumers
 - Compatibility checks (BACKWARD, FORWARD, FULL)
 - Centralized schema governance
+- Foundation for **data contracts** — schema plus validation rules, metadata, and ownership agreed between producers and consumers (a key 2026 governance theme)
 
 ---
 
@@ -338,14 +350,15 @@ We go deep inside the broker:
 **Explore Kafka Cluster Topology and Topic Configuration**
 
 You will:
-1. Connect to a running Kafka cluster and inspect broker metadata
+1. Connect to a running KRaft cluster and inspect broker/quorum metadata
 2. Create topics with different partition counts and replication factors
 3. Examine partition assignment and leader distribution
-4. Configure and observe retention policies
-5. Use `kafka-topics.sh` and `kafka-consumer-groups.sh`
+4. Configure and observe retention policies and log compaction
+5. Visualize topics, partitions, and lag in **Kafka UI / Kafdrop**
+6. Contrast consumer groups with **Share Groups (KIP-932)** — native queue semantics
 
-Environment: Docker Compose Kafka cluster
-Time: 45 minutes
+Environment: KRaft Kafka 4 cluster (Docker Compose) + Kafka UI
+Time: ~60 minutes
 
 ---
 

@@ -1,8 +1,9 @@
 # Lab 1 — Exploring Kafka Cluster Topology and Topic Configuration
 
 **Module:** 1 — Modern Event-Driven Architecture with Kafka
-**Duration:** 45–60 minutes
-**Difficulty:** Beginner
+**Duration:** 60–75 minutes
+**Difficulty:** Foundational (for experienced developers new to Kafka)
+**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 
@@ -30,24 +31,21 @@ By the end of this lab you will be able to:
 ## Lab Environment
 
 ```
-Docker Compose stack:
-  kafka-1  (broker 1, port 9092)
-  kafka-2  (broker 2, port 9093)
-  kafka-3  (broker 3, port 9094)
-  zookeeper (or KRaft — see instructor)
+Docker Compose stack (KRaft — no ZooKeeper):
+  kafka-1  (combined broker+controller, port 9092)
+  kafka-2  (combined broker+controller, port 9093)
+  kafka-3  (combined broker+controller, port 9094)
+  kafka-ui (web console, port 8080)
 
 Your machine → localhost:9092 (mapped to kafka-1)
 ```
+
+> **Note on the course environment:** The main course runs on **Strimzi/Kubernetes**. Lab 1 uses a local Docker Compose cluster so you can move fast on the fundamentals. The `kafka-*.sh` commands below are identical; on Strimzi you would run them via `kubectl exec` into a broker pod instead of `docker exec`.
 
 Start the environment:
 ```bash
 docker compose up -d
 docker compose ps   # verify all containers are running
-```
-
-Set a convenience alias:
-```bash
-alias kafka='docker exec -it kafka-1 /bin/bash -c'
 ```
 
 ---
@@ -57,24 +55,29 @@ alias kafka='docker exec -it kafka-1 /bin/bash -c'
 ### 1.1 List brokers
 
 ```bash
+docker exec kafka-1 kafka-cluster.sh cluster-id \
+  --bootstrap-server localhost:9092
+
 docker exec kafka-1 kafka-broker-api-versions.sh \
   --bootstrap-server localhost:9092 \
-  2>&1 | grep "id:"
+  2>&1 | grep -E "^[a-z0-9.-]+:9092"
 ```
 
-### 1.2 Describe the cluster
+### 1.2 Describe the KRaft metadata quorum
+
+In KRaft mode, cluster metadata is managed by a controller quorum (no ZooKeeper).
+Inspect the quorum directly:
 
 ```bash
 docker exec kafka-1 kafka-metadata-quorum.sh \
   --bootstrap-server localhost:9092 \
-  --command-config /dev/null \
   describe --status
 ```
 
 **Questions:**
 1. How many brokers are in the cluster?
-2. Which broker is the active controller?
-3. What Kafka version is running?
+2. Which node is the active controller (the quorum **leader**)?
+3. What is the `LeaderEpoch`, and what does it tell you about controller stability?
 
 ---
 
@@ -123,12 +126,17 @@ docker exec kafka-1 kafka-topics.sh \
   --partitions 24 --replication-factor 3
 
 # Compacted topic (for state)
+# segment.ms + low dirty ratio force compaction to actually run quickly
+# in the lab window (by default it would only act on rolled, non-active segments).
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic user-profiles \
   --partitions 6 --replication-factor 3 \
   --config cleanup.policy=compact \
-  --config min.cleanable.dirty.ratio=0.5
+  --config min.cleanable.dirty.ratio=0.01 \
+  --config segment.ms=10000 \
+  --config min.compaction.lag.ms=0 \
+  --config delete.retention.ms=100
 
 # Short retention (for transient data)
 docker exec kafka-1 kafka-topics.sh \
@@ -170,9 +178,12 @@ docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic orders \
   --from-beginning \
+  --timeout-ms 10000 \
   --property print.key=true \
   --property key.separator=" → "
 ```
+
+> `--timeout-ms 10000` makes the consumer exit after 10s of no new messages, so you are not left at a blocking prompt. It will print a `TimeoutException` on exit — that is expected.
 
 **Questions:**
 1. Are events for `order-1` in the same partition?
@@ -217,6 +228,14 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 1. How are partitions divided between the two consumers?
 2. What is the current lag for each partition?
 3. Start a third consumer in the same group — how do partitions rebalance?
+
+> **Kafka 4 note:** Kafka 4 introduces the new **server-side rebalance protocol (KIP-848)**. Instead of a stop-the-world rebalance where every consumer pauses while the group re-syncs, the broker coordinates incremental reassignment so unaffected consumers keep processing. You can check which protocol a group uses with:
+>
+> ```bash
+> docker exec kafka-1 kafka-consumer-groups.sh \
+>   --bootstrap-server localhost:9092 \
+>   --describe --group payment-service --state
+> ```
 
 ---
 
@@ -275,18 +294,26 @@ for v in 2 3 4; do
     --property key.separator=: --property parse.key=true
 done
 
-# After compaction runs, only user-1 v4 should remain for user-1
+# Compaction only acts on a CLOSED (rolled) segment, not the active one.
+# segment.ms=10000 rolls the segment after ~10s; the log cleaner then runs.
+# Wait for the roll + a cleaner pass before reading back.
+echo "Waiting ~30s for segment roll and log compaction..."
+sleep 30
+
+# After compaction, only the latest value for user-1 should remain
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic user-profiles \
   --from-beginning \
+  --timeout-ms 10000 \
   --property print.key=true
 ```
 
 **Questions:**
-1. After compaction, how many records exist for `user-1`?
+1. After compaction, how many records exist for `user-1`? (You should see one — `v4`.)
 2. What value does `user-1` have after compaction?
-3. When does compaction actually run?
+3. What guarantees the **latest** value per key always survives compaction?
+4. Why does compaction never touch the active segment, and what config rolled it here?
 
 ---
 
@@ -329,6 +356,93 @@ docker exec kafka-1 kafka-topics.sh \
 
 ---
 
+## Exercise 7 — Visualize the Cluster in Kafka UI
+
+So far you have inspected the cluster from the command line. Now see the same
+structures graphically — this builds intuition fast.
+
+### 7.1 Open Kafka UI
+
+Browse to **http://localhost:8080**.
+
+### 7.2 Explore
+
+Click through and locate the following:
+
+1. **Brokers** — confirm 3 brokers and which one is the active controller.
+2. **Topics → `orders`** — view the 6 partitions, their leaders, replicas, and ISR.
+   Compare against what `kafka-topics.sh --describe` showed you.
+3. **Topics → `orders` → Messages** — browse the actual events; filter by key.
+4. **Consumers → `payment-service`** — view per-partition lag as a live chart.
+
+**Questions:**
+1. Does the leader distribution shown in the UI match your CLI output from Exercise 6?
+2. Where does the UI surface consumer lag, and would you spot a stuck consumer faster here or via the CLI?
+3. Which view would you hand to an on-call engineer during an incident, and why?
+
+---
+
+## Exercise 8 — Streams vs Queues: Share Groups (Kafka 4)
+
+> **Preview feature / instructor-led.** Share Groups (KIP-932) are *early access*
+> in Kafka 4.0 and must be explicitly enabled on the cluster (the lab cluster is
+> pre-configured with `group.share.enable=true` and the share-group coordinator).
+> If your environment does not have it enabled, treat this as a demonstration.
+
+In Exercise 4, a **consumer group** split the partitions across consumers — each
+partition was owned by exactly one consumer. A **share group** is Kafka's native
+**queue**: many consumers pull from the *same* partitions cooperatively, and each
+record is acknowledged individually.
+
+### 8.1 Start two share consumers on the same topic
+
+Open **terminal 1:**
+```bash
+docker exec kafka-1 kafka-console-share-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic orders \
+  --group order-workers \
+  --property print.partition=true
+```
+
+Open **terminal 2** (same share group, same topic):
+```bash
+docker exec kafka-1 kafka-console-share-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic orders \
+  --group order-workers \
+  --property print.partition=true
+```
+
+### 8.2 Produce work and watch distribution
+
+```bash
+for i in $(seq 1 20); do
+  echo "job-$i:{\"job\":$i}" | docker exec -i kafka-1 kafka-console-producer.sh \
+    --bootstrap-server localhost:9092 \
+    --topic orders \
+    --property key.separator=: --property parse.key=true
+done
+```
+
+### 8.3 Inspect the share group
+
+```bash
+docker exec kafka-1 kafka-share-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe --group order-workers
+```
+
+**Questions:**
+1. In Exercise 4 each partition went to exactly one consumer. How is record
+   delivery distributed across the two **share** consumers here?
+2. Why does a share group not need more consumers than partitions to scale
+   (unlike a classic consumer group)?
+3. Name one workload where queue semantics (share group) fit better than a
+   consumer group, and one where the reverse is true.
+
+---
+
 ## Challenge Exercise (Optional)
 
 Write a Python script using the `confluent-kafka` library that:
@@ -357,12 +471,14 @@ import random, json
 
 You have explored:
 
-- Kafka cluster structure: brokers, topics, partitions, replicas, ISR
+- KRaft cluster structure: brokers, the controller quorum, topics, partitions, replicas, ISR
 - Topic creation with different partition counts, replication factors, and policies
 - Produce and consume events using the CLI
-- Consumer group partition assignment and rebalancing
-- Retention policies: time-based deletion and log compaction
+- Consumer group partition assignment and rebalancing (incl. the Kafka 4 KIP-848 protocol)
+- Retention policies: time-based deletion and log compaction (observed end to end)
 - Broker failure impact on partition leadership
+- Visualizing the cluster in Kafka UI
+- Native queue semantics with Share Groups (KIP-932) vs consumer groups
 
 **Key takeaway:** Kafka's durability comes from replication; its scalability comes from partitioning. Understanding both is the foundation for everything else in this course.
 
@@ -374,6 +490,8 @@ You have explored:
 2. What happens to partition leaders when a broker fails?
 3. What is the difference between a `deletion` and a `compact` retention policy?
 4. If a consumer group has 4 consumers and a topic has 6 partitions, how are partitions distributed?
+5. How does a **share group** (queue semantics) differ from a **consumer group** in how records map to consumers?
+6. What problem does the KIP-848 rebalance protocol solve compared to the older client-side protocol?
 
 ---
 
