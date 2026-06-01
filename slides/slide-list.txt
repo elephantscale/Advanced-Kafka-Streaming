@@ -6,7 +6,3 @@ module4.md
 module5.md
 module6.md
 module7.md
-module8.md
-module9.md
-module10.md
-

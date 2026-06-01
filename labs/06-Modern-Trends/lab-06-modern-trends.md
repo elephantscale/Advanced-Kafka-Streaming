@@ -1,20 +1,20 @@
-# Lab 9 — Modern Kafka Trends: Edge, AI, and Serverless
+# Lab 6 — Modern Kafka & Streaming Trends
 
-**Module:** 9 — Modern Kafka & Streaming Trends  
-**Duration:** 60 minutes  
+**Module:** 6 — Modern Kafka & Streaming Trends
+**Duration:** 60 minutes
 **Difficulty:** Intermediate
 
 ---
 
 ## Objectives
 
-By the end of this lab, you will be able to:
+By the end of this lab you will be able to:
 
-- Build a lightweight edge-to-core event pipeline
-- Run a simple streaming feature-enrichment stage
+- Build a lightweight edge-to-core event pipeline with filtering
+- Implement a real-time feature enrichment stage
 - Integrate a mock inference service with Kafka events
-- Compare queue-like worker semantics with standard consumer behavior
-- Evaluate a minimal serverless Kafka migration checklist
+- Demonstrate queue-style work distribution using consumer groups
+- Assess a pipeline's serverless readiness using a structured checklist
 
 ---
 
@@ -31,7 +31,7 @@ pip install confluent-kafka flask
 
 ## Exercise 1 — Edge-to-Core Pipeline Simulation
 
-Create two topics:
+### 1.1 Create topics
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
@@ -45,7 +45,7 @@ docker exec kafka-1 kafka-topics.sh \
   --partitions 6 --replication-factor 3
 ```
 
-Produce edge events:
+### 1.2 Produce simulated edge device events
 
 ```python
 # edge_producer.py
@@ -63,17 +63,16 @@ for i in range(5000):
     }
     p.produce('edge.telemetry.raw', key=evt['device_id'], value=json.dumps(evt).encode())
     p.poll(0)
+
 p.flush()
 print('Produced 5000 edge events')
 ```
-
-Run:
 
 ```bash
 python edge_producer.py
 ```
 
-Filter/forward only critical telemetry (`temp >= 80`):
+### 1.3 Filter and forward only critical telemetry (temp >= 80)
 
 ```python
 # edge_filter_forwarder.py
@@ -86,10 +85,9 @@ c = Consumer({
     'auto.offset.reset': 'earliest'
 })
 p = Producer({'bootstrap.servers': 'localhost:9092'})
-
 c.subscribe(['edge.telemetry.raw'])
-forwarded = 0
 
+forwarded = 0
 while forwarded < 1000:
     msg = c.poll(1.0)
     if msg is None or msg.error():
@@ -106,11 +104,13 @@ c.close()
 print(f'Forwarded {forwarded} high-priority events')
 ```
 
+**Questions:**
+1. Roughly what percentage of events passed the filter?
+2. Where is the better place to filter — at the producer, in a pipeline stage, or at the consumer? Why?
+
 ---
 
 ## Exercise 2 — Streaming Feature Enrichment
-
-Create a feature topic:
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
@@ -119,12 +119,10 @@ docker exec kafka-1 kafka-topics.sh \
   --partitions 6 --replication-factor 3
 ```
 
-Feature enrichment app:
-
 ```python
 # feature_enricher.py
 from confluent_kafka import Consumer, Producer
-import json, time
+import json
 from collections import defaultdict, deque
 
 c = Consumer({
@@ -133,8 +131,8 @@ c = Consumer({
     'auto.offset.reset': 'earliest'
 })
 p = Producer({'bootstrap.servers': 'localhost:9092'})
-
 c.subscribe(['core.telemetry.filtered'])
+
 windows = defaultdict(lambda: deque(maxlen=20))
 processed = 0
 
@@ -150,7 +148,7 @@ while processed < 1000:
         'device_id': did,
         'temp': evt['temp'],
         'moving_avg_20': round(sum(vals) / len(vals), 3),
-        'delta_from_avg': round(evt['temp'] - (sum(vals) / len(vals)), 3),
+        'delta_from_avg': round(evt['temp'] - sum(vals) / len(vals), 3),
         'site': evt['site'],
         'ts': evt['ts']
     }
@@ -163,11 +161,19 @@ c.close()
 print('Enriched 1000 feature events')
 ```
 
+```bash
+python feature_enricher.py
+```
+
+**Questions:**
+1. Why use a rolling window keyed by `device_id` rather than a global window?
+2. What happens to state if this enricher process restarts mid-stream?
+
 ---
 
 ## Exercise 3 — Mock Inference Integration
 
-Start a mock model service:
+### 3.1 Start a mock model scoring service
 
 ```python
 # mock_model.py
@@ -189,10 +195,10 @@ app.run(host='0.0.0.0', port=5001)
 ```
 
 ```bash
-python mock_model.py
+python mock_model.py &
 ```
 
-Create prediction topic:
+### 3.2 Deploy a streaming inference pipeline
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
@@ -200,8 +206,6 @@ docker exec kafka-1 kafka-topics.sh \
   --create --topic core.telemetry.predictions \
   --partitions 6 --replication-factor 3
 ```
-
-Inference pipeline:
 
 ```python
 # inference_pipeline.py
@@ -217,6 +221,7 @@ p = Producer({'bootstrap.servers': 'localhost:9092'})
 c.subscribe(['core.telemetry.features'])
 
 n = 0
+alerts = 0
 while n < 500:
     msg = c.poll(1.0)
     if msg is None or msg.error():
@@ -227,29 +232,31 @@ while n < 500:
     out = {**feat, 'risk_score': score, 'alert': score >= 0.8}
     p.produce('core.telemetry.predictions', key=msg.key(), value=json.dumps(out).encode())
     p.poll(0)
+    if out['alert']:
+        alerts += 1
     n += 1
 
 p.flush()
 c.close()
-print('Produced 500 prediction events')
+print(f'Processed {n} events, {alerts} alerts raised')
 ```
+
+**Questions:**
+1. What are the latency trade-offs between embedded inference vs external model serving?
+2. What happens to the pipeline if the scoring service is temporarily unavailable?
+3. How would you implement model versioning in this pipeline?
 
 ---
 
 ## Exercise 4 — Queue-Style Worker Pattern
-
-Create a tasks topic:
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic core.jobs \
   --partitions 6 --replication-factor 3
-```
 
-Publish jobs:
-
-```bash
+# Publish 60 jobs
 for i in $(seq 1 60); do
   echo "job-$i" | docker exec -i kafka-1 kafka-console-producer.sh \
     --bootstrap-server localhost:9092 \
@@ -257,7 +264,7 @@ for i in $(seq 1 60); do
 done
 ```
 
-Run 3 workers in the same group and observe split processing:
+Run 3 workers in the same consumer group:
 
 ```bash
 for w in 1 2 3; do
@@ -272,20 +279,33 @@ done
 wait
 ```
 
+**Questions:**
+1. How are the 60 jobs distributed across 3 workers?
+2. Can any worker process the same job twice? Why or why not?
+3. What caps the maximum parallelism of the worker pool?
+
 ---
 
 ## Exercise 5 — Serverless Readiness Checklist
 
-Assess your pipeline against this migration checklist:
+Assess your pipeline against these migration criteria for Amazon MSK Serverless or Confluent Cloud:
 
-- No broker-specific client assumptions
-- Proper retries and idempotence enabled
-- Topic/ACL provisioning scripted
-- Metrics exported externally (not broker shell scraping)
-- Schema registry usage standardized
-- Cost controls (tokenized by traffic/retention)
+| Criteria | Status | Notes |
+|---|---|---|
+| No broker-specific client assumptions | ✅ / ❌ | |
+| Retries and idempotence enabled | ✅ / ❌ | |
+| Topic/ACL provisioning scripted | ✅ / ❌ | |
+| Metrics exported externally (not broker shell scraping) | ✅ / ❌ | |
+| Schema Registry usage standardized | ✅ / ❌ | |
+| Cost model understood (traffic/retention pricing) | ✅ / ❌ | |
+| No reliance on ZooKeeper or self-managed KRaft config | ✅ / ❌ | |
 
-Document gaps and action items in your notes.
+Document gaps and action items for any ❌ items.
+
+**Questions:**
+1. Which of these criteria is hardest to retrofit into an existing pipeline?
+2. What is the biggest operational difference between self-managed Kafka and MSK Serverless?
+3. When would you choose Confluent Cloud over MSK Serverless?
 
 ---
 
@@ -293,24 +313,26 @@ Document gaps and action items in your notes.
 
 You built:
 
-- Edge filtering and forwarding
-- Real-time feature enrichment
-- Event-driven scoring with a model endpoint
-- Queue-like worker distribution pattern
+- Edge filtering and forwarding pipeline (raw → filtered)
+- Real-time feature enrichment with device-keyed rolling windows
+- Event-driven scoring with an external model endpoint
+- Queue-like work distribution pattern using consumer groups
+- Serverless readiness gap assessment
 
-**Key takeaway:** Modern Kafka architectures are pipeline-centric. Portability and good operational contracts matter more than any single deployment model.
+**Key takeaway:** Modern Kafka architectures are pipeline-centric. Portability, operational contracts, and clear separation of concerns matter more than any single deployment model.
 
 ---
 
 ## Review Questions
 
-1. Where should filtering happen in edge pipelines to reduce cost and latency?
-2. What is the tradeoff between embedded inference vs external model serving?
-3. Why does worker-group partitioning cap parallelism?
+1. Where should filtering happen in an edge pipeline to minimize cost and latency?
+2. What is the trade-off between embedded inference and external model serving in a streaming pipeline?
+3. Why does consumer group partition assignment cap maximum worker parallelism?
+4. What are the top three things to address before migrating a self-managed Kafka cluster to a serverless offering?
 
 ---
 
 ## What's Next
 
-**Module 10** is the capstone: design, build, and review a production-ready end-to-end streaming architecture.
+**Module 7** tackles high-volume fan-out — designing topic layouts and filtering strategies for 10 million messages per second across 10 overlapping consumer groups.
 

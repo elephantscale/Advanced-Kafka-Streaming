@@ -1,7 +1,7 @@
-# Lab 6 — Stress-Testing a Kafka Cluster
+# Lab 5 — Reliability, Scaling & Performance
 
-**Module:** 6 — Reliability, Scaling & Performance
-**Duration:** 60–75 minutes
+**Module:** 5 — Reliability, Scaling & Performance
+**Duration:** 75–90 minutes
 **Difficulty:** Intermediate–Advanced
 
 ---
@@ -10,12 +10,13 @@
 
 By the end of this lab you will be able to:
 
-- Baseline benchmark producer and consumer throughput
-- Tune batch size, linger.ms, and compression to improve throughput
-- Simulate a consumer lag spike and observe remediation options
+- Establish producer and consumer throughput baselines
+- Tune `batch.size`, `linger.ms`, and compression to improve throughput
+- Simulate a consumer lag spike and apply correct remediation
 - Compare eager vs cooperative rebalancing behavior
-- Kill a broker and observe failover, ISR changes, and recovery
-- Measure end-to-end latency (produce → consume)
+- Add brokers and perform partition reassignment without data loss
+- Kill a broker and observe failover, ISR recovery, and leadership rebalance
+- Measure end-to-end latency at different tuning settings
 
 ---
 
@@ -23,26 +24,20 @@ By the end of this lab you will be able to:
 
 - 3-broker Docker Compose Kafka cluster
 - Python 3.9+: `pip install confluent-kafka`
-- `htop` or `docker stats` for resource monitoring
+- `htop` or `docker stats` available for resource monitoring
 
 ---
 
 ## Lab Environment
 
 ```bash
-# Ensure 3-broker cluster is up
 docker compose up -d
 docker compose ps
 
-# Create perf topic (many partitions for parallelism)
+# Create benchmark topic with adequate parallelism
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic perf-test \
-  --partitions 12 --replication-factor 3
-
-docker exec kafka-1 kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create --topic perf-test-result \
   --partitions 12 --replication-factor 3
 ```
 
@@ -53,7 +48,7 @@ docker exec kafka-1 kafka-topics.sh \
 ### 1.1 Producer benchmark — default settings
 
 ```bash
-echo "=== BASELINE: default settings ==="
+echo "=== BASELINE: default settings (acks=1) ==="
 docker exec kafka-1 kafka-producer-perf-test.sh \
   --topic perf-test \
   --num-records 1000000 \
@@ -62,9 +57,9 @@ docker exec kafka-1 kafka-producer-perf-test.sh \
   --producer-props \
     bootstrap.servers=localhost:9092 \
     acks=1
-
-# Record: ??? records/sec, ??? MB/sec
 ```
+
+Record: `____ records/sec`, `____ MB/sec`
 
 ### 1.2 Consumer benchmark — baseline
 
@@ -99,7 +94,7 @@ docker exec kafka-1 kafka-producer-perf-test.sh \
     buffer.memory=67108864
 ```
 
-### 2.2 Try different compression algorithms
+### 2.2 Compare compression algorithms
 
 ```bash
 for compression in none snappy lz4 zstd gzip; do
@@ -122,7 +117,7 @@ done
 ### 2.3 Record your results
 
 | Configuration | Records/sec | MB/sec | Notes |
-|---------------|------------|--------|-------|
+|---|---|---|---|
 | Default (acks=1) | | | |
 | batch=128KB + linger=20ms + lz4 | | | |
 | batch=128KB + linger=20ms + zstd | | | |
@@ -135,14 +130,14 @@ done
 
 ---
 
-## Exercise 3 — Consumer Lag Simulation
+## Exercise 3 — Consumer Lag and Remediation
 
 ### 3.1 Start a slow consumer
 
 ```python
 # slow_consumer.py
 from confluent_kafka import Consumer
-import time, json
+import time
 
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
@@ -152,7 +147,6 @@ consumer = Consumer({
 })
 consumer.subscribe(['perf-test'])
 
-print("Slow consumer running (100ms processing delay per record)...")
 count = 0
 try:
     while True:
@@ -161,7 +155,7 @@ try:
             time.sleep(0.1)  # simulate slow processing
             count += 1
             if count % 100 == 0:
-                print(f"  Processed {count} records")
+                print(f'  Processed {count} records')
 except KeyboardInterrupt:
     consumer.close()
 ```
@@ -169,79 +163,51 @@ except KeyboardInterrupt:
 ```bash
 python slow_consumer.py &
 SLOW_PID=$!
-```
 
-### 3.2 Run a fast producer
-
-```bash
-# Produce 50,000 records quickly
+# Produce 50,000 records at speed
 docker exec kafka-1 kafka-producer-perf-test.sh \
   --topic perf-test \
   --num-records 50000 \
   --record-size 512 \
   --throughput 10000 \
-  --producer-props bootstrap.servers=localhost:9092 acks=1 \
-  &
+  --producer-props bootstrap.servers=localhost:9092 acks=1 &
 ```
 
-### 3.3 Watch the lag grow
+### 3.2 Watch lag grow then remediate
 
 ```bash
-# Watch lag in real time
-for i in $(seq 1 20); do
-  sleep 3
+# Watch lag
+for i in $(seq 1 10); do
+  sleep 5
   docker exec kafka-1 kafka-consumer-groups.sh \
     --bootstrap-server localhost:9092 \
     --describe --group slow-consumer-group 2>/dev/null \
-    | awk 'NR==1 || /perf-test/' \
-    | grep -v "^$"
+    | awk 'NR==1 || /perf-test/'
   echo "---"
 done
-```
 
-### 3.4 Fix: add more consumers to the group
-
-```bash
-# Start 3 additional fast consumers
+# Add 3 faster consumers to drain the lag
 for i in 1 2 3; do
-  python3 -c "
-from confluent_kafka import Consumer
-consumer = Consumer({
-    'bootstrap.servers': 'localhost:9092',
-    'group.id': 'slow-consumer-group',
-    'auto.offset.reset': 'latest',
-})
-consumer.subscribe(['perf-test'])
-count = 0
-while count < 10000:
-    msg = consumer.poll(0.5)
-    if msg and not msg.error():
-        count += 1
-consumer.close()
-print(f'Consumer $i processed {count} records')
-" &
+  docker exec kafka-1 kafka-console-consumer.sh \
+    --bootstrap-server localhost:9092 \
+    --topic perf-test \
+    --group slow-consumer-group \
+    --timeout-ms 20000 > /dev/null &
 done
-```
-
-```bash
-# Watch lag decrease
-watch -n 3 "docker exec kafka-1 kafka-consumer-groups.sh \
-  --bootstrap-server localhost:9092 \
-  --describe --group slow-consumer-group 2>/dev/null"
-
-kill $SLOW_PID
+wait
+kill $SLOW_PID 2>/dev/null
 ```
 
 **Questions:**
 1. How quickly did lag grow with the slow consumer?
 2. How quickly did lag decrease when additional consumers were added?
-3. What was the lag per partition with 4 consumers?
+3. At what point does adding more consumers stop reducing lag further?
 
 ---
 
 ## Exercise 4 — Eager vs Cooperative Rebalancing
 
-### 4.1 Set up an eager rebalancing consumer group
+### 4.1 Eager rebalancing
 
 ```python
 # eager_consumer.py
@@ -251,27 +217,23 @@ import time
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
     'group.id': 'eager-rebalance-group',
-    'partition.assignment.strategy': 'roundrobin',  # eager
+    'partition.assignment.strategy': 'roundrobin',
     'auto.offset.reset': 'latest',
     'session.timeout.ms': '10000',
     'heartbeat.interval.ms': '3000',
 })
 
-class RebalanceTracker:
-    def on_assign(self, consumer, partitions):
-        import time
-        print(f"[ASSIGN] {time.strftime('%H:%M:%S')} Got {len(partitions)} partitions")
-    def on_revoke(self, consumer, partitions):
-        import time
-        print(f"[REVOKE] {time.strftime('%H:%M:%S')} Lost {len(partitions)} partitions ← STOPPED")
+class Tracker:
+    def on_assign(self, c, p):
+        print(f'[ASSIGN {time.strftime("%H:%M:%S")}] got {len(p)} partitions')
+    def on_revoke(self, c, p):
+        print(f'[REVOKE {time.strftime("%H:%M:%S")}] lost {len(p)} partitions ← STOPPED')
 
-tracker = RebalanceTracker()
-consumer.subscribe(['perf-test'],
-    on_assign=tracker.on_assign,
-    on_revoke=tracker.on_revoke)
+t = Tracker()
+consumer.subscribe(['perf-test'], on_assign=t.on_assign, on_revoke=t.on_revoke)
 
 count = 0
-while count < 5000:
+while count < 3000:
     msg = consumer.poll(0.5)
     if msg and not msg.error():
         count += 1
@@ -279,46 +241,87 @@ consumer.close()
 ```
 
 ```bash
-# Start 3 eager consumers simultaneously and watch rebalance logs
-for i in 1 2 3; do python eager_consumer.py 2>&1 | sed "s/^/[Consumer $i] /" & done
+for i in 1 2 3; do python eager_consumer.py 2>&1 | sed "s/^/[C$i] /" & done
 wait
 ```
 
-### 4.2 Compare with cooperative rebalancing
+### 4.2 Cooperative rebalancing — change only this line
 
 ```python
-# cooperative_consumer.py — only change:
-'partition.assignment.strategy': 'cooperative-sticky',  # incremental
+'partition.assignment.strategy': 'cooperative-sticky',
 ```
 
 Run the same test and compare:
-- How many REVOKE events occurred?
-- How long was processing stopped during rebalance?
+- Number of REVOKE events
+- Time processing was fully stopped during rebalance
 
 **Questions:**
-1. How many partitions were revoked and reassigned in the eager rebalance?
-2. In cooperative mode, did any consumer stop processing entirely?
-3. In what scenarios would cooperative rebalancing provide the biggest benefit?
+1. How many partitions were revoked and reassigned per rebalance in eager mode?
+2. In cooperative mode, did any consumer stop processing completely?
+3. In what production scenarios is cooperative rebalancing most beneficial?
 
 ---
 
-## Exercise 5 — Broker Failure and Failover
+## Exercise 5 — Expanding Kafka with No Data Loss
 
-### 5.1 Observe baseline state
+### 5.1 Check partition assignment before expansion
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe --topic perf-test \
-  | grep "Leader:"
+  | grep "Leader:" | awk '{print "Leader:", $4, "Replicas:", $6}'
 ```
 
-Note which partitions have leaders on broker 2 (`id=2`).
-
-### 5.2 Start continuous producer and consumer
+### 5.2 Generate a reassignment plan to spread load
 
 ```bash
-# Continuous producer (in background)
+# Create topics-to-move.json
+cat > /tmp/topics.json <<EOF
+{"topics":[{"topic":"perf-test"}],"version":1}
+EOF
+
+docker cp /tmp/topics.json kafka-1:/tmp/topics.json
+
+docker exec kafka-1 kafka-reassign-partitions.sh \
+  --bootstrap-server localhost:9092 \
+  --topics-to-move-json-file /tmp/topics.json \
+  --broker-list "1,2,3" \
+  --generate \
+  > /tmp/reassign-plan.txt
+
+cat /tmp/reassign-plan.txt
+```
+
+### 5.3 Execute with throttle to protect live producers
+
+```bash
+# Apply reassignment with replication throttle (50 MB/s)
+docker exec kafka-1 kafka-reassign-partitions.sh \
+  --bootstrap-server localhost:9092 \
+  --reassignment-json-file /tmp/reassign-plan.txt \
+  --throttle 52428800 \
+  --execute
+
+# Monitor progress
+docker exec kafka-1 kafka-reassign-partitions.sh \
+  --bootstrap-server localhost:9092 \
+  --reassignment-json-file /tmp/reassign-plan.txt \
+  --verify
+```
+
+**Questions:**
+1. Why throttle replication during reassignment?
+2. What does `--verify` show while reassignment is in progress?
+3. How do you remove the throttle after reassignment completes?
+
+---
+
+## Exercise 6 — Broker Failure and Failover
+
+### 6.1 Start a continuous producer
+
+```bash
 python3 -c "
 from confluent_kafka import Producer
 import time, json
@@ -337,48 +340,41 @@ while True:
 PROD_PID=$!
 ```
 
-### 5.3 Kill broker 2 and observe failover
+### 6.2 Kill broker 2 and watch failover
 
 ```bash
-# Kill broker 2
 docker compose stop kafka-2
 echo "Broker 2 stopped at $(date)"
 
-# Watch partition leaders change
 watch -n 2 "docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe --topic perf-test 2>/dev/null \
   | grep 'Leader:' | head -12"
 ```
 
-**Observe:**
-- Under-replicated partitions appear immediately
-- Leadership migrates to remaining brokers within seconds
-
-### 5.4 Restore broker 2
+### 6.3 Restore and watch ISR recover
 
 ```bash
 docker compose start kafka-2
 echo "Broker 2 restarted at $(date)"
 
-# Watch ISR recover
 watch -n 3 "docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe --topic perf-test 2>/dev/null \
   | grep 'Isr:' | head -6"
 
-kill $PROD_PID
+kill $PROD_PID 2>/dev/null
 ```
 
 **Questions:**
-1. How long did leader election take after broker failure?
-2. Were any messages lost during the failover?
-3. How long until the ISR was fully restored after broker restart?
-4. What would happen if we had `acks=all` and `min.insync.replicas=3` with only 2 brokers alive?
+1. How long did leader election take after the broker failure?
+2. Were any messages lost during failover (check producer error output)?
+3. How long until ISR was fully restored after broker restart?
+4. What would happen with `acks=all` and `min.insync.replicas=3` when only 2 brokers are alive?
 
 ---
 
-## Exercise 6 — End-to-End Latency Measurement
+## Exercise 7 — End-to-End Latency Measurement
 
 ```python
 # e2e_latency.py
@@ -387,7 +383,7 @@ import time, json, threading, statistics
 
 latencies = []
 
-def produce_with_timestamps():
+def produce():
     p = Producer({'bootstrap.servers': 'localhost:9092', 'acks': '1'})
     for i in range(1000):
         event = {'seq': i, 'produce_ts': time.time() * 1000}
@@ -396,7 +392,7 @@ def produce_with_timestamps():
         time.sleep(0.01)
     p.flush()
 
-def consume_and_measure():
+def consume():
     c = Consumer({
         'bootstrap.servers': 'localhost:9092',
         'group.id': 'latency-test',
@@ -409,24 +405,23 @@ def consume_and_measure():
         if msg and not msg.error():
             data = json.loads(msg.value())
             if 'produce_ts' in data:
-                latency_ms = (time.time() * 1000) - data['produce_ts']
-                latencies.append(latency_ms)
+                latencies.append((time.time() * 1000) - data['produce_ts'])
                 count += 1
     c.close()
 
-# Run both in parallel
-consumer_thread = threading.Thread(target=consume_and_measure)
-consumer_thread.start()
-time.sleep(0.5)  # let consumer subscribe first
-produce_with_timestamps()
-consumer_thread.join()
+t = threading.Thread(target=consume)
+t.start()
+time.sleep(0.5)
+produce()
+t.join()
 
 if latencies:
-    print(f"E2E Latency (ms):")
-    print(f"  p50:  {statistics.median(latencies):.1f}")
-    print(f"  p95:  {sorted(latencies)[int(len(latencies)*0.95)]:.1f}")
-    print(f"  p99:  {sorted(latencies)[int(len(latencies)*0.99)]:.1f}")
-    print(f"  max:  {max(latencies):.1f}")
+    s = sorted(latencies)
+    print(f'E2E Latency (ms):')
+    print(f'  p50:  {statistics.median(s):.1f}')
+    print(f'  p95:  {s[int(len(s)*0.95)]:.1f}')
+    print(f'  p99:  {s[int(len(s)*0.99)]:.1f}')
+    print(f'  max:  {max(s):.1f}')
 ```
 
 ```bash
@@ -435,35 +430,37 @@ python e2e_latency.py
 
 **Questions:**
 1. What is the p99 end-to-end latency?
-2. How does increasing `linger.ms` affect latency?
-3. What is the trade-off between latency and throughput?
+2. How does increasing `linger.ms` affect p99 latency?
+3. What is the fundamental trade-off between throughput and latency?
 
 ---
 
 ## Lab Summary
 
-You have performed:
+You performed:
 
 - Baseline and tuned throughput benchmarks (producer + consumer)
-- Consumer lag simulation and remediation by adding consumers
+- Compression algorithm comparison
+- Consumer lag simulation and group-based remediation
 - Eager vs cooperative rebalancing comparison
-- Broker failure simulation with automatic failover observation
-- End-to-end latency measurement
+- Partition reassignment with throttling on a live cluster
+- Broker failure simulation with automatic failover and ISR recovery
+- End-to-end latency measurement at different settings
 
-**Key takeaway:** Kafka's performance is highly tunable. The right settings depend on your SLA — high throughput favors large batches and linger, low latency favors small batches and no linger. Reliability comes from replication and cooperative rebalancing.
+**Key takeaway:** Kafka performance is highly configurable. Throughput favors large batches and linger; low latency favors small batches. Resilience comes from replication and cooperative rebalancing. Scaling without data loss requires careful ISR validation.
 
 ---
 
 ## Review Questions
 
 1. What is the throughput trade-off between `acks=1` and `acks=all`?
-2. How does cooperative rebalancing improve upon eager rebalancing?
+2. How does cooperative rebalancing differ from eager rebalancing, and when does it matter most?
 3. After a broker failure, what determines how quickly a new leader is elected?
-4. At what point does adding more consumers stop reducing lag?
+4. Why throttle replication during partition reassignment on a live cluster?
 
 ---
 
 ## What's Next
 
-**Module 7** covers Kafka security — TLS, SASL authentication, ACLs, and enterprise governance practices.
+**Module 6** explores modern Kafka trends — edge architectures, AI-driven streaming, serverless deployments, and multi-cluster federation.
 

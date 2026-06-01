@@ -400,5 +400,5 @@ You have explored:
 
 ## What's Next
 
-**Module 3** covers advanced topic design — partition key selection, schema evolution, tiered storage, and cross-cluster replication.
+**Module 3** covers Kafka operations and observability — metrics, monitoring tools, operational runbooks, and incident triage for production clusters.
 

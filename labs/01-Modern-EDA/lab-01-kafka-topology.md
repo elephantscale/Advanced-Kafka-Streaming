@@ -379,5 +379,5 @@ You have explored:
 
 ## What's Next
 
-**Module 2** goes deep inside the Kafka broker — log segments, KRaft, ISR mechanics, and exactly-once semantics.
+**Module 2** goes deep inside the Kafka broker — log segments, KRaft, ISR mechanics, upgrade strategies, and broker configuration best practices.
 

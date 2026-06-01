@@ -1,4 +1,4 @@
-# Module 3 — Advanced Topic Design & Data Modeling
+# Module 3 — Kafka Operations & Observability
 
 Elephant Scale
 
@@ -6,351 +6,263 @@ Elephant Scale
 
 ## Module 3 Agenda
 
-- Partition design and key selection
-- Avoiding data skew and hot partitions
-- Topic compaction vs deletion
-- Event schema design
-- Schema evolution and compatibility
-- Tiered storage and topic lifecycle management
-- Cross-cluster replication
-- Multi-region streaming architectures
+- The four observability signals for Kafka
+- Critical broker, producer, and consumer metrics
+- Monitoring and tooling stack: Prometheus, Grafana, Kafka UI, Kafdrop, Confluent Control Center
+- Operational procedures: topic management, consumer group management, security operations
+- Incident triage runbook
 
 ---
 
-## Why Topic Design Matters
+## The Four Observability Signals
 
-Poor topic design leads to:
-- **Hot partitions** — one partition handles all the load
-- **Schema drift** — consumers break after schema changes
-- **Unbounded storage** — topics grow without limits
-- **Replication lag** — cross-region pipelines fall behind
-- **Operational complexity** — hundreds of poorly named topics
+1. **Latency** — end-to-end produce/consume latency
+2. **Traffic** — messages/sec, bytes/sec per topic and partition
+3. **Errors** — failed produce requests, consumer errors, ISR shrinks
+4. **Saturation** — disk usage, network, CPU, consumer lag
 
-Good design is **the foundation** of a reliable streaming platform.
+> If you can't measure it, you can't operate it.
 
 ---
 
-## Partition Count — How to Choose
-
-Partition count determines **maximum parallelism**.
-
-Rules of thumb:
-- More partitions = more parallelism = more throughput
-- More partitions = more file handles, more rebalance time, more memory
-- Start with `max(target throughput / per-partition throughput, consumer count)`
-
-Typical guidance:
-
- Throughput  Recommended Partitions
-----------
- < 100 MB/s  1–6
- 100 MB/s – 1 GB/s  6–30
- > 1 GB/s  30–100+
-
-> You can increase partitions later, but **key-based ordering breaks** — plan ahead.
-
----
-
-## Partition Key Selection
-
-The partition key determines **which partition an event goes to**.
+## Kafka Metrics Architecture
 
 ```
-partition = hash(key) % numPartitions
-```
-
-Good keys:
-- `customer_id` — distributes customer events, preserves per-customer order
-- `device_id` — distributes IoT telemetry
-- `order_id` — distributes order events
-
-Bad keys:
-- `null` — round-robin, loses ordering
-- `"US"` — if 80% of events are from US, 80% go to one partition
-- `timestamp` — sequential keys cause monotonic partition assignment
-
----
-
-## Data Skew and Hot Partitions
-
-**Hot partition:** one partition receives disproportionately more traffic.
-
-```
-Before fix (key = country):
-  Partition 0 (US):  ████████████████████ 80%
-  Partition 1 (EU):  ████ 15%
-  Partition 2 (APAC): █ 5%
-
-After fix (key = user_id):
-  Partition 0:  ███████ 33%
-  Partition 1:  ███████ 34%
-  Partition 2:  ██████  33%
-```
-
-Fixes:
-- Add entropy to the key: `country + "_" + user_id`
-- Use a custom partitioner
-- Increase partitions for hot keys (sticky partitioning pattern)
-
----
-
-## Topic Retention: Deletion vs Compaction
-
-**Delete retention** — events are deleted after time or size threshold:
-
-```
-cleanup.policy=delete
-retention.ms=604800000   (7 days)
-retention.bytes=10737418240  (10 GB per partition)
-```
-
-**Compacted retention** — keep only the latest event per key:
-
-```
-cleanup.policy=compact
-min.cleanable.dirty.ratio=0.5
-```
-
-**Combined** — compact AND delete (Kafka 2.0+):
-
-```
-cleanup.policy=compact,delete
-```
-
-Use compaction for **state** (current value matters), deletion for **events** (history matters).
-
----
-
-## Event Schema Design Principles
-
-Design events for **longevity and evolvability**:
-
-1. Use **explicit schemas** — never rely on untyped JSON in production
-2. Include **metadata fields** in every event:
-   - `event_id` (UUID)
-   - `event_type`
-   - `event_timestamp`
-   - `schema_version`
-   - `source_service`
-3. Use **past-tense naming** — `OrderPlaced`, not `PlaceOrder`
-4. Design for **consumer needs** — include all fields consumers need to avoid joins
-5. **Never delete fields** — only add optional fields
-
----
-
-## Schema Formats Compared
-
- Format  Schema Language  Binary  Human-readable  IDL
---------
- Avro  JSON schema  Yes  No  Schema in registry
- Protobuf  `.proto` files  Yes  No  Strong typing
- JSON Schema  JSON  No  Yes  JSON
- Thrift  Thrift IDL  Yes  No  Strong typing
-
-**Avro** — most common in Kafka ecosystem (Confluent default)
-**Protobuf** — growing adoption, better for polyglot environments
-**JSON Schema** — easiest to start, worst performance
-
----
-
-## Avro Schema Example
-
-```json
-{
-  "type": "record",
-  "name": "OrderPlaced",
-  "namespace": "com.acme.orders",
-  "fields": [
-    {"name": "order_id",    "type": "string"},
-    {"name": "customer_id", "type": "string"},
-    {"name": "amount",      "type": "double"},
-    {"name": "currency",    "type": "string",  "default": "USD"},
-    {"name": "placed_at",   "type": "long",    "logicalType": "timestamp-millis"},
-    {"name": "metadata",    "type": {"type": "map", "values": "string"}, "default": {}}
-  ]
-}
+Kafka Brokers / Clients
+    │  (JMX metrics)
+    ▼
+JMX Exporter (Prometheus)
+    │  (HTTP /metrics endpoint)
+    ▼
+Prometheus
+    │  (scrape + store time series)
+    ▼
+Grafana
+    │  (dashboards + alerts)
+    ▼
+Alertmanager → PagerDuty / Slack / Email
 ```
 
 ---
 
-## Schema Evolution and Compatibility
+## Critical Broker Metrics
 
-Schema Registry enforces compatibility rules:
+| Metric | Alert Threshold |
+|--------|----------------|
+| Under-replicated partitions | > 0 (page immediately) |
+| Active controller count | != 1 (page immediately) |
+| Request handler idle % | < 30% (warning) |
+| Network processor idle % | < 30% (warning) |
+| Log flush latency p99 | > 500ms |
+| Bytes in/out per sec | > 80% NIC capacity |
+| ISR shrink rate | any non-zero sustained rate |
 
- Mode  Allowed Changes
---------
- BACKWARD  Add optional fields, remove optional fields
- FORWARD  Remove optional fields, add optional fields
- FULL  Both backward and forward compatible
- NONE  Any change allowed (dangerous)
+---
 
-Compatibility check on `schema.registry.url` before producing:
+## Critical Consumer Metrics
+
+| Metric | Alert When |
+|--------|-----------|
+| Consumer lag | > SLA threshold |
+| `records-consumed-rate` | drops unexpectedly |
+| `fetch-latency-avg` | high → broker issue |
+| `rebalance-rate-and-time` | frequent → instability |
+| `assigned-partitions` | imbalanced across consumers |
+
+---
+
+## Monitoring & Tooling Stack
+
+| Tool | Best For |
+|------|---------|
+| **Prometheus + Grafana** | Broker and consumer dashboards, alerting, lag thresholds |
+| **Kafka UI** | Topic management, consumer group operations, visual inspection |
+| **Kafdrop** | Lightweight quick inspection of topic contents and consumer state |
+| **Confluent Control Center** | Enterprise-grade observability with schema and connector visibility |
+
+---
+
+## Prometheus Alerting Strategy
+
+**Tier 1 — Page immediately:**
+- `UnderReplicatedPartitions > 0` for > 2 minutes
+- `ActiveControllerCount != 1`
+- Broker down (not restarting)
+- Disk > 90% on any broker
+
+**Tier 2 — Notify (Slack/email):**
+- Consumer lag above SLA threshold
+- Producer error rate > 0
+- Request handler idle < 30%
+
+**Tier 3 — Track in dashboard:**
+- Compression ratios, batch sizes, rebalance frequency
+
+---
+
+## Topic Operational Procedures
+
+**Alter retention on a live topic:**
+```bash
+kafka-configs.sh --bootstrap-server kafka:9092 \
+  --alter --entity-type topics --entity-name orders \
+  --add-config retention.ms=86400000
+```
+
+**Trigger log compaction:**
+```bash
+kafka-configs.sh --bootstrap-server kafka:9092 \
+  --alter --entity-type topics --entity-name user-profiles \
+  --add-config min.cleanable.dirty.ratio=0.01
+```
+
+**Inspect topic config:**
+```bash
+kafka-configs.sh --bootstrap-server kafka:9092 \
+  --describe --entity-type topics --entity-name orders
+```
+
+---
+
+## Consumer Group Operations
+
+**Check lag across all groups:**
+```bash
+kafka-consumer-groups.sh --bootstrap-server kafka:9092 \
+  --describe --all-groups
+```
+
+**Reset offsets to earliest:**
+```bash
+kafka-consumer-groups.sh --bootstrap-server kafka:9092 \
+  --group payment-service --topic orders \
+  --reset-offsets --to-earliest --execute
+```
+
+**Detect stuck consumers:**
+- Lag grows but `records-consumed-rate` is non-zero → slow processing
+- Lag grows and `records-consumed-rate` is zero → consumer stuck or stopped
+
+---
+
+## Security Operations
+
+**TLS certificate rotation:**
+- Generate new keystores before expiry
+- Rolling restart one broker at a time
+- Verify listeners are up before continuing
+
+**SASL credential rotation:**
+```bash
+kafka-configs.sh --bootstrap-server kafka:9092 \
+  --alter --entity-type users --entity-name alice \
+  --add-config 'SCRAM-SHA-512=[iterations=8192,password=newpassword]'
+```
+
+**Audit logging:**
+- Enable `log4j.logger.kafka.authorizer.logger` in broker config
+- Route to a dedicated topic for compliance tracking
+
+---
+
+## Incident Triage Runbook
+
+Apply this 6-step process to every production incident:
+
+1. **Scope** — one topic? one consumer group? entire cluster?
+2. **Control plane** — `ActiveControllerCount` must be exactly 1
+3. **Durability** — check `UnderReplicatedPartitions` and ISR state
+4. **Consumer impact** — is lag growing or stable?
+5. **Mitigation** — one safe, reversible action
+6. **Recovery** — verify the signal clears
+
+---
+
+## Troubleshooting — Under-Replicated Partitions
+
+**Symptom:** `UnderReplicatedPartitions > 0`
+
+**Causes:** broker failure, network partition, disk full on follower, follower behind on load
+
+**Investigation:**
+```bash
+kafka-topics.sh --bootstrap-server kafka:9092 \
+  --describe --under-replicated-partitions
+
+# Check follower broker logs
+grep "ReplicaFetcherThread" /var/log/kafka/server.log
+```
+
+---
+
+## Troubleshooting — Consumer Lag Spikes
+
+**Investigation checklist:**
+1. Are all consumer instances running?
+2. Did processing time increase (slow 3rd-party call)?
+3. Did producer throughput spike?
+4. Did a rebalance occur (consumer instance died)?
+5. Is the consumer JVM GC-ing heavily?
 
 ```bash
-curl -X POST http://schema-registry:8081/compatibility/subjects/orders-value/versions/latest \
-  -H "Content-Type: application/json" \
-  -d '{"schema": "..."}'
-# → {"is_compatible": true}
+watch -n 5 kafka-consumer-groups.sh \
+  --bootstrap-server kafka:9092 \
+  --describe --group payment-service
 ```
 
 ---
 
-## Schema Registry Workflow
+## Troubleshooting — Disk Saturation
 
+**Immediate actions:**
+```bash
+# Reduce retention on large non-critical topics
+kafka-configs.sh --bootstrap-server kafka:9092 \
+  --alter --entity-type topics --entity-name clickstream \
+  --add-config retention.ms=3600000
+
+# Check which topics are consuming the most disk
+kafka-log-dirs.sh --bootstrap-server kafka:9092 \
+  --topic-list orders,payments --describe | grep "size"
 ```
-Producer
-  │  (new schema version)
-  ▼
-Schema Registry
-  │  → Check compatibility with latest version
-  │  → If compatible: assign schema ID
-  │  → If not: reject with error
-  ▼
-Kafka (message header contains schema ID, not full schema)
-
-Consumer
-  │  (receives schema ID in message header)
-  ▼
-Schema Registry  (fetch schema by ID, cache locally)
-  │
-  ▼
-Deserialize correctly
-```
-
----
-
-## Tiered Storage
-
-**Problem:** Keeping months of data on broker disks is expensive.
-
-**Solution:** Kafka tiered storage offloads older log segments to object storage.
-
-```
-Hot tier (broker SSDs):
-  Last 7 days  ←── producers write here, consumers read mostly here
-
-Cold tier (S3 / GCS / Azure Blob):
-  Last 12 months  ←── older segments, read on demand
-```
-
-Benefits:
-- Dramatically reduce broker storage costs
-- Unlimited retention without adding brokers
-- Consumers can replay historical data transparently
-
-Supported by: Confluent Cloud, Amazon MSK, Redpanda
-
----
-
-## Topic Lifecycle Management
-
-Production topic governance:
-
-1. **Naming conventions** — `<env>.<domain>.<entity>.<event>` e.g. `prod.orders.order.placed`
-2. **Owner registration** — each topic has a declared owner team
-3. **Retention policies** — set retention.ms and retention.bytes explicitly
-4. **Schema enforcement** — all production topics must have a registered schema
-5. **Deprecation process** — topics are deprecated before deletion (tombstone period)
-6. **Audit** — track topic creation/deletion via changelog
-
----
-
-## Cross-Cluster Replication — MirrorMaker 2
-
-**MirrorMaker 2 (MM2)** is the built-in replication tool:
-
-```
-Source Cluster (us-east-1)
-  Topic: orders
-     │
-     ▼  (MM2 consumer + producer)
-Target Cluster (eu-west-1)
-  Topic: us-east-1.orders   ← remote topic prefix
-```
-
-Features:
-- Offset translation (source offsets → target offsets)
-- Consumer group offset sync
-- Topic configuration sync
-- Heartbeat and checkpointing topics
-
----
-
-## MirrorMaker 2 Configuration
-
-```properties
-clusters=source, target
-
-source.bootstrap.servers=kafka-source:9092
-target.bootstrap.servers=kafka-target:9092
-
-source->target.enabled=true
-source->target.topics=orders, payments, users
-
-replication.factor=3
-emit.heartbeats.enabled=true
-emit.checkpoints.enabled=true
-```
-
----
-
-## Multi-Region Streaming Architectures
-
-**Active-Active** — both regions produce and consume:
-```
-Region A ←──── MirrorMaker 2 ────► Region B
-  (producers)                       (producers)
-  (consumers)                       (consumers)
-  ← local reads/writes →          ← local reads/writes →
-```
-
-**Active-Passive** — one region is primary:
-```
-Primary (Active) ──── MirrorMaker 2 ───► DR (Passive)
-  (all traffic)                            (standby/read)
-```
-
-Trade-offs: active-active has lower latency for global users but requires conflict resolution.
 
 ---
 
 ## Module 3 Summary
 
-- Partition count = max parallelism; choose based on target throughput
-- Key selection is critical — bad keys cause hot partitions
-- Use deletion for event history, compaction for state
-- Avro and Protobuf are preferred for production; register all schemas
-- Schema evolution must follow compatibility rules (prefer BACKWARD)
-- Tiered storage enables unlimited retention at reduced cost
-- MirrorMaker 2 replicates topics across clusters with offset translation
-- Multi-region: active-active for availability, active-passive for DR
+- Monitor four signals: latency, traffic, errors, saturation
+- Critical alert: `UnderReplicatedPartitions > 0`, `ActiveControllerCount != 1`
+- Use Prometheus + Grafana for metrics; Kafka UI or Kafdrop for operational inspection
+- Topic management: alter retention and compaction settings on live topics
+- Consumer group management: describe, reset offsets, detect stuck consumers
+- Security operations: certificate rotation, SASL credential management, audit logging
+- Use a structured 6-step runbook for every production incident
 
 ---
 
 ## What's Next
 
-**Module 4 — Stream Processing with Kafka Streams & ksqlDB**
+**Module 4 — Connectors, Pipelines & Integrations**
 
-- Stateless and stateful transformations
-- Joins, aggregations, and windowing
-- State stores, fault tolerance, and scaling
-- Event-driven AI pipelines
+- Kafka Connect deep dive: source, sink, offset management, DLQ
+- Integration patterns: S3, Elasticsearch, Flink, Spark, NiFi
+- Enterprise integration patterns and backpressure management
 
 ---
 
 ## Lab Preview — Lab 3
 
-**Create and Benchmark High-Throughput Topics**
+**Diagnose Kafka Health Using Monitoring Dashboards and Operational Runbooks**
 
 You will:
-1. Create topics with different partition/replication configurations
-2. Produce events with different keys and observe partition distribution
-3. Identify and fix a hot partition scenario
-4. Register a schema and observe compatibility enforcement
-5. Benchmark throughput using `kafka-producer-perf-test.sh`
+1. Verify Prometheus metric scraping and Grafana dashboards
+2. Produce consumer lag and apply the triage runbook
+3. Alter topic retention and reset consumer group offsets
+4. Simulate under-replicated partitions (broker kill) and verify recovery
+5. Test Prometheus alert expressions
 
-Environment: Docker Compose Kafka + Schema Registry
-Time: 60 minutes
+Environment: Docker Compose (3-broker Kafka, Prometheus, Grafana, Kafdrop)
+Time: 60–75 minutes
 
 ---
 

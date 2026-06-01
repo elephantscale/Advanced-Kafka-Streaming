@@ -1,4 +1,4 @@
-# Module 7 — Security & Governance
+# Module 7 — High-Volume Fan-Out Best Practices
 
 Elephant Scale
 
@@ -6,342 +6,253 @@ Elephant Scale
 
 ## Module 7 Agenda
 
-- TLS and SASL_SSL configuration
-- Authentication mechanisms: Kerberos, SCRAM, OAuth, RBAC
-- Authorization via ACLs
-- Encryption and secrets management
-- Governance best practices
-- Security posture for enterprise Kafka deployments
-- Compliance considerations
+- The fan-out problem: 10M msg/sec, 10 overlapping consumers
+- Topic design strategies: single topic vs pre-filtered sub-topics
+- Partition key design and consumer group topology
+- Efficient filtering: headers, schemas, Kafka Streams branching, ksqlDB
+- Benchmark: duplication vs filtering
+- KEDA autoscaling based on consumer lag
 
 ---
 
-## Why Kafka Security Matters
+## The Fan-Out Problem
 
-An unsecured Kafka cluster:
-- Any client can read **any topic** (including sensitive PII/financial data)
-- Any client can **write to any topic** (data poisoning)
-- Any client can **delete topics** or alter configurations
-- All data in transit is **plaintext** (interceptable)
-- No audit trail of who accessed what
+**Scenario:**
 
-> By default, Kafka has **no authentication, no authorization, no encryption**.
+- A dataset arrives at **10 million messages per second**
+- **10 consumer teams** each need a **different but overlapping subset**
+- Goal: minimize storage and network duplication on Kafka
+- Goal: minimize consumer CPU overhead for filtering unwanted messages
 
----
-
-## Kafka Security Layers
-
-```
-┌──────────────────────────────────────┐
-│  Encryption (TLS)                    │  ← data in transit
-│  Authentication (SASL/mTLS)          │  ← who are you?
-│  Authorization (ACLs / RBAC)         │  ← what can you do?
-│  Audit Logging                       │  ← what did you do?
-│  Encryption at Rest (OS/disk level)  │  ← data at rest
-└──────────────────────────────────────┘
-```
+> This is a real-world telecom, IoT, and financial data challenge.
 
 ---
 
-## TLS Configuration — Broker
+## Topic Design Options
 
-```properties
-# server.properties
-listeners=SASL_SSL://0.0.0.0:9093
-advertised.listeners=SASL_SSL://broker1.example.com:9093
+| Design | Storage | Network | Consumer CPU | Ops Complexity |
+|---|---|---|---|---|
+| 1 broad topic + client-side filter | Low | Low | High | Low |
+| 10 pre-filtered topics | 10× | 10× producer writes | Low | High (topic sprawl) |
+| Streams-branched derived topics | Moderate | Moderate | Low | Moderate |
+| 1 topic + header-based skip | Low | Low | Low–Moderate | Low |
 
-ssl.keystore.location=/etc/kafka/ssl/kafka.server.keystore.jks
-ssl.keystore.password=${env:KEYSTORE_PASSWORD}
-ssl.key.password=${env:KEY_PASSWORD}
-ssl.truststore.location=/etc/kafka/ssl/kafka.server.truststore.jks
-ssl.truststore.password=${env:TRUSTSTORE_PASSWORD}
-
-ssl.client.auth=required        # require client certificates (mTLS)
-ssl.protocol=TLSv1.3
-ssl.enabled.protocols=TLSv1.3,TLSv1.2
-```
+**Rule of thumb:** topic proliferation trades CPU for storage. At 10M msg/sec, every deserialization matters.
 
 ---
 
-## TLS Configuration — Client
+## Partition Key Design
 
-```properties
-# producer/consumer
-security.protocol=SASL_SSL
-ssl.truststore.location=/etc/kafka/ssl/client.truststore.jks
-ssl.truststore.password=changeit
+Partition by the field that co-locates related data for consumers:
 
-# For mTLS (mutual TLS):
-ssl.keystore.location=/etc/kafka/ssl/client.keystore.jks
-ssl.keystore.password=changeit
 ```
+Key = device_id         → all events for a device land on the same partition
+Key = region + type     → consumers can target specific partitions
+Key = customer_segment  → consumer reads only their segment's partitions
+```
+
+**Anti-pattern:** random or null keys → even distribution but no co-location, no filtering leverage.
+
+---
+
+## Header-Based Filtering
+
+Producers tag messages with routing metadata:
 
 ```python
-# Python (confluent-kafka)
-conf = {
-    'bootstrap.servers': 'kafka:9093',
-    'security.protocol': 'SASL_SSL',
-    'ssl.ca.location': '/etc/kafka/ssl/ca.pem',
-    'ssl.certificate.location': '/etc/kafka/ssl/client.pem',
-    'ssl.key.location': '/etc/kafka/ssl/client.key',
+producer.produce(
+    topic='telemetry.all',
+    key=device_id.encode(),
+    value=json.dumps(event).encode(),
+    headers=[
+        ('region', region.encode()),
+        ('event_type', event_type.encode()),
+    ]
+)
+```
+
+Consumers skip by header — **no deserialization for unwanted records:**
+
+```python
+headers = dict(msg.headers() or [])
+if headers.get('region', b'').decode() != MY_REGION:
+    continue          # skip — no JSON parse, no CPU cost
+data = json.loads(msg.value())   # only deserialize wanted messages
+```
+
+---
+
+## Header Filtering: CPU Savings
+
+At 10M msg/sec with 33% of messages wanted per consumer:
+
+| Approach | Deserialization calls/sec | Relative CPU |
+|---|---|---|
+| Full deserialize all | 10,000,000 | 1× (baseline) |
+| Header skip, deserialize wanted | 3,300,000 | ~0.33× |
+
+> 3× CPU reduction per consumer — multiplied across 10 consumers = significant infrastructure savings.
+
+---
+
+## Schema-Based Filtering
+
+Using Avro union types, consumers can deserialize only the outer envelope first:
+
+```json
+{
+  "type": "record",
+  "name": "TelemetryEvent",
+  "fields": [
+    {"name": "region", "type": "string"},
+    {"name": "payload", "type": ["SensorData", "AlertData", "StatusData"]}
+  ]
 }
 ```
 
----
+Consumer reads `region` from outer record → decides whether to parse `payload`.
 
-## Authentication Mechanisms
-
- Mechanism  Description  Use When
----------
- SASL/PLAIN  Username + password (TLS required)  Dev/test, simple deployments
- SASL/SCRAM-SHA-256/512  Salted challenge-response  Production without Kerberos
- SASL/GSSAPI (Kerberos)  Enterprise Kerberos tickets  Enterprise with Active Directory
- SASL/OAUTHBEARER  OAuth 2.0 / OIDC tokens  Cloud-native, microservices
- mTLS  Client certificates  High-assurance, zero-trust
+Stronger guarantees than headers (schema-enforced) but higher coupling to Schema Registry.
 
 ---
 
-## SASL/SCRAM Configuration
+## Kafka Streams Branching
 
-Create user credentials (stored in ZooKeeper / KRaft metadata):
-```bash
-kafka-configs.sh \
-  --bootstrap-server kafka:9092 \
-  --alter \
-  --add-config 'SCRAM-SHA-512=[iterations=8192,password=mysecretpassword]' \
-  --entity-type users \
-  --entity-name alice
-```
+Server-side pre-filtering — removes CPU cost from all consumers:
 
-Broker config:
-```properties
-sasl.enabled.mechanisms=SCRAM-SHA-512
-sasl.mechanism.inter.broker.protocol=SCRAM-SHA-512
-```
-
-Client config:
-```properties
-sasl.mechanism=SCRAM-SHA-512
-sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
-  username="alice" password="mysecretpassword";
-```
-
----
-
-## OAuth / OIDC Authentication
-
-Modern cloud-native deployments use OAuth 2.0:
-
-```properties
-# Broker
-sasl.enabled.mechanisms=OAUTHBEARER
-sasl.oauthbearer.token.endpoint.url=https://idp.example.com/oauth/token
-sasl.oauthbearer.expected.audience=kafka-cluster
-listener.name.sasl_ssl.oauthbearer.sasl.server.callback.handler.class=\
-  org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerValidatorCallbackHandler
-```
-
-```properties
-# Client
-sasl.mechanism=OAUTHBEARER
-sasl.oauthbearer.token.endpoint.url=https://idp.example.com/oauth/token
-sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required \
-  clientId="my-service" clientSecret="..." scope="kafka-read";
-```
-
----
-
-## Authorization — ACLs
-
-Kafka ACLs control what authenticated principals can do:
-
-```bash
-# Allow alice to produce to orders topic
-kafka-acls.sh \
-  --bootstrap-server kafka:9093 \
-  --command-config /etc/kafka/admin.properties \
-  --add \
-  --allow-principal User:alice \
-  --operation Write \
-  --topic orders
-
-# Allow payment-service to consume from orders
-kafka-acls.sh \
-  --add \
-  --allow-principal User:payment-service \
-  --operation Read \
-  --topic orders \
-  --group payment-service
-```
-
----
-
-## ACL Operations Reference
-
- Operation  Applies To  Description
----------
- Read  Topic, Group  Consume from topic / use consumer group
- Write  Topic  Produce to topic
- Create  Topic, Cluster  Create topics
- Delete  Topic  Delete topics
- Alter  Topic, Cluster  Modify configurations
- Describe  Topic, Group  Read metadata (list, describe)
- AlterConfigs  Topic, Broker  Change configs
- ClusterAction  Cluster  Broker-to-broker operations
-
----
-
-## Role-Based Access Control (RBAC)
-
-Confluent Platform extends ACLs with RBAC:
-
-Pre-defined roles:
-- `SystemAdmin` — full cluster access
-- `ClusterAdmin` — manage brokers, ACLs
-- `Operator` — monitor and restart
-- `ResourceOwner` — own specific topics/groups
-- `DeveloperRead/DeveloperWrite/DeveloperManage` — topic-level
-
-```bash
-# Assign alice the DeveloperWrite role for orders topic
-confluent iam rbac role-binding create \
-  --principal User:alice \
-  --role DeveloperWrite \
-  --resource Topic:orders \
-  --kafka-cluster-id <cluster-id>
-```
-
----
-
-## Encryption and Secrets Management
-
-**Never put secrets in config files!**
-
-Use:
-- **Environment variables**: `${env:KAFKA_PASSWORD}`
-- **HashiCorp Vault**: dynamic credentials with short TTL
-- **AWS Secrets Manager**: auto-rotation for RDS/Kafka credentials
-- **Kubernetes Secrets**: for containerized deployments
-
-Kafka Config Provider pattern:
-```properties
-config.providers=vault
-config.providers.vault.class=com.github.jcustenborder.kafka.config.vault.VaultConfigProvider
-ssl.keystore.password=${vault:secret/kafka/ssl:keystore_password}
-```
-
----
-
-## Governance Best Practices
-
-**Topic ownership:**
-- Every topic has a declared owner (team or service)
-- Owner is responsible for schema, retention, SLA
-- Track in a service catalog or schema registry
-
-**Naming conventions:**
-```
-<environment>.<domain>.<entity>.<event>
-prod.payments.payment.completed
-staging.orders.order.placed
-dev.users.user.updated
-```
-
-**Retention governance:**
-- Set explicit `retention.ms` — never use default (7 days may not match your SLA)
-- Document retention rationale (compliance, operational, business)
-
----
-
-## PII and Data Masking
-
-Kafka is often a conduit for sensitive data:
-
-**At-source masking** — mask before producing:
 ```java
-order.setCardNumber(maskPan(order.getCardNumber()));  // "4111 **** **** 1111"
-```
+KStream<String, TelemetryEvent> source = builder.stream("telemetry.all");
 
-**Field-level encryption** — encrypt sensitive fields in the event:
-```java
-ProtectedField cardNumber = encrypt(order.getCardNumber(), customerKey);
-```
+Map<String, KStream<String, TelemetryEvent>> branches = source.split()
+    .branch((k, v) -> v.getRegion().equals("emea"), Branched.as("emea"))
+    .branch((k, v) -> v.getRegion().equals("apac"), Branched.as("apac"))
+    .branch((k, v) -> v.getRegion().equals("amer"), Branched.as("amer"))
+    .defaultBranch(Branched.as("other"));
 
-**Kafka Streams masking** — mask in a pipeline before sinking to accessible topics:
-```java
-KStream<String, Order> masked = orders.mapValues(o -> {
-    o.setCardNumber(mask(o.getCardNumber()));
-    return o;
-});
-masked.to("orders-masked");
+branches.get("emea").to("telemetry.emea");
+branches.get("apac").to("telemetry.apac");
+branches.get("amer").to("telemetry.amer");
 ```
 
 ---
 
-## Compliance Considerations
+## ksqlDB Materialized Views
 
- Regulation  Kafka Impact
----------
- GDPR  Right to erasure → use compaction with tombstones or field-level encryption
- PCI DSS  Encrypt cardholder data in transit and at rest; restrict access via ACLs
- HIPAA  PHI must be encrypted; access control; audit logging
- SOC 2  Audit trails, access control, monitoring
- FedRAMP  Specific TLS versions, FIPS-approved algorithms
+Declarative SQL alternative to Streams branching:
+
+```sql
+CREATE STREAM telemetry_all (
+    region VARCHAR,
+    device_id VARCHAR,
+    value DOUBLE
+) WITH (KAFKA_TOPIC='telemetry.all', VALUE_FORMAT='JSON');
+
+CREATE STREAM telemetry_emea AS
+    SELECT * FROM telemetry_all
+    WHERE region = 'emea';
+```
+
+Push queries keep derived topics updated as new events arrive.
 
 ---
 
-## Security Posture for Enterprise Deployments
+## Filtering Strategy Decision Tree
 
-Checklist:
-- [ ] TLS 1.2+ on all listeners
-- [ ] Authentication (SCRAM or OAuth) for all clients
-- [ ] ACLs or RBAC for all topics
-- [ ] No wildcard `*` ACLs in production
-- [ ] Secrets in a vault (not config files)
-- [ ] Audit logging enabled
-- [ ] Schema Registry with schema validation
-- [ ] PII fields masked or encrypted
-- [ ] Network segmentation (Kafka not directly accessible from internet)
-- [ ] Regular credential rotation
+```
+Is the wanted fraction < 50% of all messages?
+    YES → header-based skip is worth it
+    NO  → consider full deserialization or pre-filtered topics
+
+Is the number of consumer variants > 5?
+    YES → Streams branching reduces per-consumer cost
+    NO  → header filtering may be sufficient
+
+Is the filtering logic changing frequently?
+    YES → ksqlDB materialized views (no redeployment needed)
+    NO  → Kafka Streams branching (JVM, lower overhead)
+```
+
+---
+
+## KEDA Autoscaler: Scale on Lag
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: telemetry-consumer-emea-scaler
+spec:
+  scaleTargetRef:
+    name: telemetry-consumer-emea
+  minReplicaCount: 1
+  maxReplicaCount: 8      # capped by partition count / consumer groups
+  pollingInterval: 15
+  cooldownPeriod: 60
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: kafka_consumergroup_lag
+      query: |
+        max(kafka_consumergroup_lag{consumergroup="header-filter-emea"})
+      threshold: "10000"
+```
+
+Scale up when lag > 10,000. Scale down after `cooldownPeriod` seconds of low lag.
+
+---
+
+## KEDA: Why Cap maxReplicaCount?
+
+```
+Topic: telemetry.all (24 partitions, 3 consumer teams)
+Each team gets 24/3 = 8 partitions maximum
+
+maxReplicaCount = 8
+```
+
+Adding more consumers than partitions **wastes resources** — idle replicas with no partitions assigned.
+
+---
+
+## Benchmark: Duplication vs Filtering
+
+At 50,000 messages with 33% wanted (emea):
+
+| Strategy | Time (s) | Throughput (msg/s) | Note |
+|---|---|---|---|
+| Full deserialize all 50K | ~baseline | — | All messages deserialized |
+| Header-skip, deserialize emea only | ~0.33× time | ~3× faster | Skip at metadata level |
+
+**Break-even point:** when wanted fraction > ~80%, full deserialization may be cheaper (no header overhead).
 
 ---
 
 ## Module 7 Summary
 
-- Kafka has no security by default — all layers must be explicitly configured
-- TLS encrypts data in transit; configure at broker and all clients
-- SCRAM-SHA-512 is the practical choice for most deployments; OAuth for cloud-native
-- ACLs grant fine-grained operation-level access per principal per resource
-- RBAC (Confluent) simplifies access management with pre-defined roles
-- Never store secrets in config files — use Vault, AWS Secrets Manager, or K8s Secrets
-- Governance: naming conventions, ownership, retention policies
-- PII: mask at source or encrypt fields before producing
-
----
-
-## What's Next
-
-**Module 8 — Observability & Operations**
-
-- Core Kafka metrics (broker, producer, consumer)
-- Monitoring with Prometheus, Grafana, Burrow
-- Troubleshooting: under-replicated partitions, lag spikes, disk saturation
+- Single broad topic + header filtering is the most storage-efficient fan-out design
+- Header-based skip avoids deserialization cost for unwanted messages — 3× CPU savings at 33% selectivity
+- Schema-based filtering provides stronger guarantees but tighter Schema Registry coupling
+- Kafka Streams branching moves filtering to the server side — best for static, high-volume cases
+- ksqlDB materialized views provide declarative filtering without redeployment
+- KEDA autoscaling ties consumer replica count to Prometheus lag metric
+- Cap `maxReplicaCount` to partition count per consumer group
 
 ---
 
 ## Lab Preview — Lab 7
 
-**Configure ACLs and Validate Access Control**
+**Design and Validate a Fan-Out Strategy**
 
 You will:
-1. Enable SASL/SCRAM authentication on a Kafka cluster
-2. Create users for producer and consumer services
-3. Configure ACLs granting least-privilege access
-4. Verify that unauthorized operations are rejected
-5. Test TLS encryption with certificate verification
+1. Create a broad topic and produce events with routing headers
+2. Implement header-based filtering across 3 consumer groups
+3. Benchmark full deserialization vs header-skip
+4. Review Kafka Streams branching pseudocode
+5. Configure and test a KEDA ScaledObject tied to consumer lag
 
-Environment: Docker Compose Kafka with security enabled
-Time: 60 minutes
+Environment: Docker Compose (3-broker Kafka, Prometheus, KEDA optional)
+Time: 75–90 minutes
 
 ---
 

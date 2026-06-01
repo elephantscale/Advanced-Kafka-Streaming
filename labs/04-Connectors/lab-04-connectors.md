@@ -1,6 +1,6 @@
-# Lab 5 — Deploy and Tune Source and Sink Connectors
+# Lab 4 — Deploy and Tune Source and Sink Connectors
 
-**Module:** 5 — Connectors, Pipelines & Integrations
+**Module:** 4 — Connectors, Pipelines & Integrations
 **Duration:** 60–75 minutes
 **Difficulty:** Intermediate
 
@@ -11,60 +11,56 @@
 By the end of this lab you will be able to:
 
 - Deploy a JDBC source connector reading from PostgreSQL
-- Deploy an S3 (MinIO) sink connector writing Parquet files
-- Inject bad records and observe Dead Letter Queue behavior
-- Tune connector task counts and observe throughput impact
-- Simulate a connector failure and verify offset resume
-- Use the Kafka Connect REST API for operations
+- Deploy an S3 (MinIO) sink connector writing time-partitioned JSON files
+- Configure Dead Letter Queue (DLQ) error handling and inject bad records
+- Verify offset tracking through connector pause, insert, and resume
+- Tune connector task counts and discuss parallelism limits
 
 ---
 
 ## Prerequisites
 
-- Docker Compose cluster with Kafka Connect, PostgreSQL, MinIO
-- `curl` and `jq`
-- Python 3.9+ with `confluent-kafka`, `psycopg2`
+- Docker Compose cluster with Kafka Connect, PostgreSQL, and MinIO
+- `curl` and `jq` installed
+- Python 3.9+ with `confluent-kafka` and `psycopg2`
 
 ---
 
 ## Lab Environment
 
 ```bash
-# Start full stack
+# Start full stack including Kafka Connect, PostgreSQL, and MinIO
 docker compose --profile connect up -d
 
-# Verify services
+# Verify all services are healthy
 docker compose ps
-curl http://localhost:8083/connectors           # Connect REST API
-curl http://localhost:9000/minio/health/live    # MinIO
+curl http://localhost:8083/connectors           # Kafka Connect REST API
+curl http://localhost:9000/minio/health/live    # MinIO health check
 ```
 
 ---
 
 ## Exercise 1 — Prepare Source Data (PostgreSQL)
 
-### 1.1 Create tables and seed data
+### 1.1 Create the orders table and seed data
 
 ```bash
 docker exec -it postgres psql -U kafka_user -d orders_db
 ```
 
 ```sql
--- Create orders table with CDC-friendly columns
 CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
-    order_id VARCHAR(50) UNIQUE NOT NULL,
-    customer_id VARCHAR(50) NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    status VARCHAR(20) DEFAULT 'PENDING',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    id           SERIAL PRIMARY KEY,
+    order_id     VARCHAR(50) UNIQUE NOT NULL,
+    customer_id  VARCHAR(50) NOT NULL,
+    amount       DECIMAL(10,2) NOT NULL,
+    status       VARCHAR(20) DEFAULT 'PENDING',
+    created_at   TIMESTAMP DEFAULT NOW(),
+    updated_at   TIMESTAMP DEFAULT NOW()
 );
 
--- Create index for efficient CDC polling
 CREATE INDEX idx_orders_updated_at ON orders(updated_at);
 
--- Seed initial data
 INSERT INTO orders (order_id, customer_id, amount, status)
 SELECT
     'order-' || i,
@@ -111,14 +107,11 @@ curl -X POST http://localhost:8083/connectors \
 ### 2.2 Verify connector status
 
 ```bash
-# Check status
 curl http://localhost:8083/connectors/postgres-orders-source/status | jq .
-
-# Check tasks
 curl http://localhost:8083/connectors/postgres-orders-source/tasks | jq .
 ```
 
-### 2.3 Verify events in Kafka
+### 2.3 Verify events flowing into Kafka
 
 ```bash
 docker exec kafka-1 kafka-console-consumer.sh \
@@ -132,24 +125,22 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ### 2.4 Insert new rows and observe CDC
 
 ```bash
-# Insert 50 new orders while consumer watches
 docker exec postgres psql -U kafka_user -d orders_db -c "
 INSERT INTO orders (order_id, customer_id, amount, status)
 SELECT 'new-order-' || i, 'customer-' || (i % 50), random() * 500, 'PENDING'
 FROM generate_series(501, 550) AS t(i);"
 
-# Observe new events flowing into Kafka
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic prod.postgres.orders \
-  --group lab5-observer \
+  --group lab4-observer \
   --timeout-ms 10000
 ```
 
 **Questions:**
 1. How many events were read on the first poll?
-2. How long after INSERT did the events appear in Kafka?
-3. What fields are in each event?
+2. How quickly did new inserts appear in Kafka?
+3. What fields are present in each event?
 
 ---
 
@@ -158,8 +149,6 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ### 3.1 Create MinIO bucket
 
 ```bash
-# MinIO web UI: http://localhost:9001 (admin/password)
-# Or via CLI:
 docker exec minio mc alias set local http://localhost:9000 admin password
 docker exec minio mc mb local/kafka-data-lake
 ```
@@ -199,23 +188,20 @@ curl -X POST http://localhost:8083/connectors \
 ### 3.3 Verify files in MinIO
 
 ```bash
-# Wait ~30 seconds for flush
 sleep 35
-
-# List files written to MinIO
 docker exec minio mc ls --recursive local/kafka-data-lake/
 ```
 
 **Questions:**
-1. What is the path structure of the files?
-2. What determines when a new file is created?
+1. What is the time-based path structure of the written files?
+2. What determines when a new file is created (`flush.size` vs `rotate.interval.ms`)?
 3. How many records are in each file?
 
 ---
 
-## Exercise 4 — Error Handling and DLQ
+## Exercise 4 — Error Handling and Dead Letter Queue
 
-### 4.1 Deploy a connector with DLQ configured
+### 4.1 Update the sink connector to add DLQ configuration
 
 ```bash
 curl -X PUT http://localhost:8083/connectors/orders-s3-sink/config \
@@ -263,17 +249,16 @@ for i, record in enumerate(bad_records):
         key=f'bad-key-{i}'.encode(),
         value=record
     )
-    print(f"Injected bad record {i}: {record[:40]}")
+    print(f'Injected bad record {i}: {record[:50]}')
 
 producer.flush()
-print("Injected 4 bad records")
+print('Done.')
 ```
 
 ```bash
 python inject_bad_records.py
 sleep 10
 
-# Check DLQ
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic orders-dlq \
@@ -284,30 +269,22 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ```
 
 **Questions:**
-1. What headers are attached to DLQ messages?
-2. What error information is provided?
-3. Without `errors.tolerance=all`, what would happen when a bad record arrives?
+1. What error headers are attached to DLQ messages?
+2. Without `errors.tolerance=all`, what would happen when a bad record arrives?
+3. How would you build a DLQ reprocessing pipeline?
 
 ---
 
 ## Exercise 5 — Connector Failure and Offset Resume
 
-### 5.1 Note current topic offsets
-
-```bash
-docker exec kafka-1 kafka-get-offsets.sh \
-  --bootstrap-server localhost:9092 \
-  --topic prod.postgres.orders
-```
-
-### 5.2 Stop the source connector
+### 5.1 Pause the source connector
 
 ```bash
 curl -X PUT http://localhost:8083/connectors/postgres-orders-source/pause
 curl http://localhost:8083/connectors/postgres-orders-source/status | jq '.connector.state'
 ```
 
-### 5.3 Insert rows while connector is paused
+### 5.2 Insert rows while connector is paused
 
 ```bash
 docker exec postgres psql -U kafka_user -d orders_db -c "
@@ -315,88 +292,77 @@ INSERT INTO orders (order_id, customer_id, amount)
 SELECT 'paused-order-' || i, 'customer-' || i, 100
 FROM generate_series(1, 100) AS t(i);"
 
-echo "Inserted 100 rows while connector was paused"
+echo '100 rows inserted while connector was paused'
 ```
 
-### 5.4 Resume connector and verify catch-up
+### 5.3 Resume and verify catch-up
 
 ```bash
 curl -X PUT http://localhost:8083/connectors/postgres-orders-source/resume
 
-# Watch events arriving in Kafka
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic prod.postgres.orders \
-  --group lab5-catchup \
+  --group lab4-catchup \
   --timeout-ms 15000 \
   --property print.key=true \
-  | grep "paused-order"
+  | grep paused-order
 ```
 
 **Questions:**
-1. Did the connector pick up the rows inserted while paused?
-2. How did Kafka Connect know where to resume?
-3. What would happen if you deleted and recreated the connector?
+1. Did the connector pick up all rows inserted while paused?
+2. How did Kafka Connect know exactly where to resume?
+3. What would happen if you deleted and recreated the connector from scratch?
 
 ---
 
-## Exercise 6 — Task Scaling and Throughput
-
-### 6.1 Measure single-task throughput
+## Exercise 6 — Task Scaling Discussion
 
 ```bash
-# Insert 5000 rows
+# Insert 5000 rows and measure ingestion time
 docker exec postgres psql -U kafka_user -d orders_db -c "
 INSERT INTO orders (order_id, customer_id, amount)
 SELECT 'bulk-order-' || i, 'customer-' || (i % 1000), random() * 1000
 FROM generate_series(1, 5000) AS t(i);"
 
-time docker exec kafka-1 kafka-consumer-groups.sh \
-  --bootstrap-server localhost:9092 \
-  --describe --group connect-postgres-orders-source 2>/dev/null
-```
-
-### 6.2 Increase task count
-
-```bash
+# Try increasing tasks.max (note: JDBC with incrementing mode supports only 1 task per table)
 curl -X PUT http://localhost:8083/connectors/postgres-orders-source/config \
   -H "Content-Type: application/json" \
-  -d '{ ... existing config ..., "tasks.max": "3" }'
+  -d "$(curl -s http://localhost:8083/connectors/postgres-orders-source/config | jq '. + {"tasks.max": "3"}')" \
+  | jq .
 ```
-
-**Note:** JDBC connector with `incrementing` mode typically supports only 1 task per table. Observe that increasing `tasks.max` may not linearly scale for single-table polling connectors.
 
 **Questions:**
 1. Did increasing `tasks.max` improve throughput for the JDBC connector?
-2. For what type of connectors does `tasks.max` provide linear scaling?
-3. What is the difference between connector parallelism and topic parallelism?
+2. For what types of connectors does `tasks.max` provide linear scaling?
+3. What is the difference between connector-level parallelism and topic partition parallelism?
 
 ---
 
 ## Lab Summary
 
-You have deployed and operated:
+You deployed and operated:
 
-- A JDBC source connector ingesting PostgreSQL CDC into Kafka
+- A JDBC source connector polling PostgreSQL CDC into Kafka
 - An S3/MinIO sink connector writing time-partitioned JSON files
-- DLQ configuration for error handling (injected and observed bad records)
+- DLQ error handling — configured, injected bad records, and observed routing
 - Connector pause/resume with offset tracking verification
-- Task scaling analysis
+- Task scaling analysis and parallelism limits
 
-**Key takeaway:** Kafka Connect removes the need to write custom integration code. Understanding offset management, error handling, and task parallelism lets you build reliable, production-grade data pipelines.
+**Key takeaway:** Kafka Connect eliminates the need for custom integration code. Understanding offset management, error handling, and task parallelism lets you build reliable, production-grade pipelines.
 
 ---
 
 ## Review Questions
 
-1. Where does a JDBC source connector store its read position (offset)?
+1. Where does a JDBC source connector store its read position, and what happens if that storage is lost?
 2. What happens to events that fail processing when `errors.tolerance=all`?
-3. What determines how many tasks a connector can use?
+3. What determines the maximum useful `tasks.max` for a given connector?
 4. How would you monitor connector health in production?
 
 ---
 
 ## What's Next
 
-**Module 6** covers reliability, performance tuning, and cluster operations — you'll stress-test a Kafka cluster and analyze rebalance behavior.
+**Module 5** covers reliability, performance tuning, and cluster scaling — you will stress-test a Kafka cluster and analyze rebalance and failover behavior under load.
 
