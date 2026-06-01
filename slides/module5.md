@@ -51,6 +51,12 @@ brokers = max(
 )
 ```
 
+> **Tiered Storage (KIP-405, GA in Kafka 4) changes this math.** Only the *hot* tail
+> (`local.retention.ms`) stays on broker disk; older segments offload to object storage.
+> Long-retention topics no longer size the cluster on broker disk — broker count is then
+> driven by *throughput*, not total storage. Re-run the formula with `local.retention`
+> in place of full `retention`.
+
 ---
 
 ## Producer Throughput Tuning
@@ -177,7 +183,7 @@ All consumers STOP → all partitions revoked → new assignment → all resume
 → 100% processing halted (seconds to minutes)
 ```
 
-**Cooperative incremental rebalancing** (Kafka 2.4+):
+**Cooperative incremental rebalancing** (client-side, Kafka 2.4+):
 ```
 Only affected partitions move
 Non-affected consumers keep processing
@@ -189,6 +195,17 @@ Config:
 partition.assignment.strategy=CooperativeStickyAssignor
 group.instance.id=payment-service-instance-1   # static membership
 ```
+
+**New consumer protocol — KIP-848 (GA in Kafka 4):**
+```
+The BROKER computes and drives the assignment (no client-side leader,
+no JoinGroup/SyncGroup stop-the-world barrier).
+→ Incremental by design; faster, more stable rebalances at scale
+```
+```properties
+group.protocol=consumer        # opt in to the new protocol
+```
+> The classic protocol still works; KIP-848 is the forward path. Lab 5 compares all three.
 
 ---
 
@@ -232,7 +249,8 @@ Recommendation for production: `acks=all`, `min.insync.replicas=2`, `replication
 - Producer tuning: larger batches, linger, lz4/zstd compression
 - Consumer tuning: fetch.min.bytes, max.poll.records
 - Consumer lag is the primary operational health metric
-- Cooperative rebalancing dramatically reduces disruption
+- Cooperative rebalancing dramatically reduces disruption; the KIP-848 broker-driven protocol is the Kafka 4 forward path
+- Tiered Storage decouples retention from broker disk — size on throughput, not total storage
 - HA: `acks=all`, `min.insync.replicas=2`, `replication-factor=3`
 
 ---

@@ -3,6 +3,7 @@
 **Module:** 6 — Modern Kafka & Streaming Trends
 **Duration:** 60 minutes
 **Difficulty:** Intermediate
+**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 
@@ -283,6 +284,14 @@ wait
 1. How are the 60 jobs distributed across 3 workers?
 2. Can any worker process the same job twice? Why or why not?
 3. What caps the maximum parallelism of the worker pool?
+
+> **This is a consumer-group approximation of a queue** — distribution is by *partition*,
+> so with 6 partitions you can't usefully run more than 6 workers, and all jobs on one
+> partition go to a single worker. Kafka 4's **Share Groups (KIP-932)** are the *native*
+> queue: many share consumers pull from the same partitions with per-message ack, so
+> worker count is decoupled from partition count. If the lab cluster has share groups
+> enabled, repeat this exercise with `kafka-console-share-consumer.sh --group job-workers`
+> and contrast the distribution.
 
 ---
 

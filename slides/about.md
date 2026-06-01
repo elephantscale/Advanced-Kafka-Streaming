@@ -10,14 +10,11 @@ Elephant Scale
 ---------------
  1  Modern Event-Driven Architecture with Kafka
  2  Kafka Internals & Cluster Architecture
- 3  Advanced Topic Design & Data Modeling
- 4  Stream Processing with Kafka Streams & ksqlDB
- 5  Connectors, Pipelines & Integrations
- 6  Reliability, Scaling & Performance
- 7  Security & Governance
- 8  Observability & Operations
- 9  Modern Kafka & Streaming Trends
- 10  Capstone & Best Practices
+ 3  Kafka Operations & Observability
+ 4  Connectors, Pipelines & Integrations
+ 5  Reliability, Scaling & Performance
+ 6  Modern Kafka & Streaming Trends
+ 7  High-Volume Fan-Out Best Practices
 
 Notes:
 

@@ -3,6 +3,7 @@
 **Module:** 5 — Reliability, Scaling & Performance
 **Duration:** 75–90 minutes
 **Difficulty:** Intermediate–Advanced
+**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 
@@ -255,10 +256,32 @@ Run the same test and compare:
 - Number of REVOKE events
 - Time processing was fully stopped during rebalance
 
+### 4.3 New consumer protocol — KIP-848 (Kafka 4)
+
+The first two variants are *client-side* assignment strategies. Kafka 4 adds a
+*broker-coordinated* protocol (KIP-848). Switch to it by replacing the
+`partition.assignment.strategy` line with the `group.protocol` setting — the broker
+now owns the assignment, so no client-side assignor is configured:
+
+```python
+# Remove 'partition.assignment.strategy' and use:
+'group.protocol': 'consumer',          # KIP-848 broker-driven rebalance
+'group.id': 'kip848-rebalance-group',
+```
+
+Run the same 3-consumer test. Confirm which protocol the group is using:
+
+```bash
+docker exec kafka-1 kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe --group kip848-rebalance-group --state
+```
+
 **Questions:**
 1. How many partitions were revoked and reassigned per rebalance in eager mode?
 2. In cooperative mode, did any consumer stop processing completely?
-3. In what production scenarios is cooperative rebalancing most beneficial?
+3. Under KIP-848, what does the `--state` output report for the protocol, and how does the rebalance disruption compare to the client-side strategies?
+4. In what production scenarios is the broker-driven protocol most beneficial?
 
 ---
 

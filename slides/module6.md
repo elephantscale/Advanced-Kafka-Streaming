@@ -23,9 +23,10 @@ Kafka has evolved from a messaging system into a **universal data streaming plat
 
 Current trends:
 - **Serverless** — managed, elastic, consumption-based pricing
+- **Diskless / object-store Kafka** — brokers backed directly by S3-class storage (KIP-1150 "diskless topics"; WarpStream, AutoMQ, Confluent Freight) — cheaper, near-infinite retention, no local disks to manage
 - **Edge streaming** — Kafka on constrained devices and edge gateways
 - **AI integration** — streaming features for ML and real-time inference
-- **Queue semantics** — Kafka 3.7+ as a work queue (not just a log)
+- **Native queue semantics** — Share Groups (KIP-932, Kafka 4) make Kafka a work queue, not just a log
 - **Federation** — connected multi-cluster topologies across regions and clouds
 
 ---
@@ -87,7 +88,7 @@ Enterprise Systems
 
 Implementations:
 - **Strimzi** — Kafka on Kubernetes, edge clusters
-- **Red Panda** — Kafka-compatible, low resource footprint
+- **Redpanda** — Kafka-compatible, single-binary, low resource footprint
 
 ---
 
@@ -102,9 +103,9 @@ MQTT Broker
     ▼
 Kafka (raw telemetry topics)
     │
-    ├── Kafka Streams (filtering, enrichment)
-    ├── ksqlDB (alerting queries)
-    └── S3 Sink (raw archive)
+    ├── Kafka Streams / Flink (filtering, enrichment)
+    ├── Flink SQL (alerting queries)
+    └── S3 / Iceberg Sink (raw archive)
 ```
 
 Key design considerations: partition by `device_id`, idempotent producers, mTLS per device, edge filtering before forwarding.
@@ -149,19 +150,23 @@ Pattern 1: model updates without redeploying the stream application.
 
 ---
 
-## Kafka Queues — Work Distribution
+## Kafka Queues — Share Groups (KIP-932)
 
-**Kafka 3.7+ queue semantics** for work distribution:
+**Native queue semantics arrived in Kafka 4.0** as Share Groups (early access):
 ```
-Topic: tasks (1 partition)
-Consumer Group: workers (3 consumers)
+Topic: tasks (any partition count)
+Share Group: workers (N share consumers)
 
-  Without queue mode: all 3 consumers see all messages
-  With queue mode:    each message goes to exactly one worker
-                      (like RabbitMQ / SQS behavior)
+  Consumer group:  each partition is owned by exactly one consumer
+                   (parallelism capped at partition count)
+  Share group:     many consumers pull from the SAME partitions,
+                   each record acknowledged individually
+                   (like RabbitMQ / SQS — but durable and replayable)
 ```
 
-Useful for: task queues, job distribution, worker pools — while keeping Kafka's durability and replay guarantees.
+- Consumer count is **decoupled from partition count** — scale workers past partitions
+- Per-message ack/redelivery; tooling: `kafka-console-share-consumer.sh`, `kafka-share-groups.sh`
+- Useful for: task queues, job distribution, worker pools — while keeping Kafka's durability and replay
 
 ---
 
@@ -192,10 +197,11 @@ MSK Serverless:
   + Pay per throughput (not per broker-hour)
   + Kafka API compatible — no code changes needed
 
-Limits:
-  - Max 200 MB/s write, 400 MB/s read
+Limits (verify current values in AWS docs — quotas change):
+  - Per-cluster ingress/egress throughput caps
   - Limited custom broker configs
-  - 24h standard retention (tiered storage: up to years)
+  - Partition-per-cluster quota
+  - Retention bounded by the managed storage tier
 ```
 
 Best for: variable workloads, dev/test, new projects.
@@ -206,7 +212,7 @@ Best for: variable workloads, dev/test, new projects.
 
 ```
 Confluent Cloud (Basic / Standard / Dedicated / Enterprise):
-  + Fully managed Kafka + Schema Registry + ksqlDB + Kafka Connect
+  + Fully managed Kafka + Schema Registry + Flink + Kafka Connect
   + Stream Governance: data catalog, lineage tracking
   + Multi-cloud (AWS, GCP, Azure)
   + Tableflow: Kafka topics as Apache Iceberg tables
@@ -246,7 +252,7 @@ Before migrating to a managed/serverless offering:
 - Multi-cluster federation via MirrorMaker 2 supports global, multi-cloud topologies
 - Edge streaming: Kafka on Kubernetes (Strimzi) for IoT and factory use cases
 - AI integration: streaming feature engineering + online inference pipelines
-- Queue semantics (Kafka 3.7+) enable Kafka as a traditional work queue
+- Native queue semantics — Share Groups (KIP-932, Kafka 4) — enable Kafka as a traditional work queue, decoupled from partition count
 - Serverless Kafka (MSK Serverless, Confluent Cloud) eliminates infrastructure management
 - Modernizing legacy: strangler fig pattern with bridge connectors
 - Future: Kafka + Iceberg, AI-native pipelines, data mesh

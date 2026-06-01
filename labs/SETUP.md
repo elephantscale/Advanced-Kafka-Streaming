@@ -34,8 +34,8 @@ docker compose --profile connect up -d
 # Monitoring labs
 docker compose --profile monitoring up -d
 
-# ksqlDB labs
-docker compose --profile ksqldb up -d
+# Stream processing labs (Apache Flink)
+docker compose --profile flink up -d
 ```
 
 ## Verification

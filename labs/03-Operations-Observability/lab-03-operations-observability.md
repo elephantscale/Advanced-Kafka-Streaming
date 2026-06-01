@@ -3,6 +3,7 @@
 **Module:** 3 — Kafka Operations & Observability
 **Duration:** 60–75 minutes
 **Difficulty:** Intermediate
+**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 
@@ -284,8 +285,11 @@ docker exec kafka-1 kafka-topics.sh \
 - Mitigation: preferred leader election
 
 ```bash
-docker exec kafka-1 kafka-preferred-replica-election.sh \
-  --bootstrap-server localhost:9092
+# kafka-preferred-replica-election.sh was removed in Kafka 4 — use kafka-leader-election.sh.
+docker exec kafka-1 kafka-leader-election.sh \
+  --bootstrap-server localhost:9092 \
+  --election-type preferred \
+  --all-topic-partitions
 ```
 
 ### Drill C — Disk Pressure (simulated)

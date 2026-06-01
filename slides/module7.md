@@ -9,7 +9,7 @@ Elephant Scale
 - The fan-out problem: 10M msg/sec, 10 overlapping consumers
 - Topic design strategies: single topic vs pre-filtered sub-topics
 - Partition key design and consumer group topology
-- Efficient filtering: headers, schemas, Kafka Streams branching, ksqlDB
+- Efficient filtering: headers, schemas, Kafka Streams branching, Flink SQL
 - Benchmark: duplication vs filtering
 - KEDA autoscaling based on consumer lag
 
@@ -136,23 +136,28 @@ branches.get("amer").to("telemetry.amer");
 
 ---
 
-## ksqlDB Materialized Views
+## Flink SQL — Declarative Filtering
 
-Declarative SQL alternative to Streams branching:
+Declarative SQL alternative to Streams branching (Flink SQL is the 2026 direction;
+ksqlDB has been de-emphasized by Confluent and Flink is in this course's lab env):
 
 ```sql
-CREATE STREAM telemetry_all (
-    region VARCHAR,
-    device_id VARCHAR,
-    value DOUBLE
-) WITH (KAFKA_TOPIC='telemetry.all', VALUE_FORMAT='JSON');
+CREATE TABLE telemetry_all (
+    region STRING,
+    device_id STRING,
+    `value` DOUBLE
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'telemetry.all',
+    'properties.bootstrap.servers' = 'kafka:9092',
+    'format' = 'json'
+);
 
-CREATE STREAM telemetry_emea AS
-    SELECT * FROM telemetry_all
-    WHERE region = 'emea';
+CREATE TABLE telemetry_emea WITH ('topic' = 'telemetry.emea') AS
+    SELECT * FROM telemetry_all WHERE region = 'emea';
 ```
 
-Push queries keep derived topics updated as new events arrive.
+Continuous queries keep derived topics updated as new events arrive.
 
 ---
 
@@ -168,7 +173,7 @@ Is the number of consumer variants > 5?
     NO  → header filtering may be sufficient
 
 Is the filtering logic changing frequently?
-    YES → ksqlDB materialized views (no redeployment needed)
+    YES → Flink SQL (declarative, redeploy-free query changes)
     NO  → Kafka Streams branching (JVM, lower overhead)
 ```
 
@@ -213,6 +218,11 @@ maxReplicaCount = 8
 
 Adding more consumers than partitions **wastes resources** — idle replicas with no partitions assigned.
 
+> **Kafka 4 caveat — Share Groups (KIP-932):** with a *share group* instead of a consumer
+> group, this cap no longer applies — many share consumers can read the same partitions
+> cooperatively, so you can scale workers past the partition count. For classic consumer
+> groups (this lab's KEDA example), the partition cap still holds.
+
 ---
 
 ## Benchmark: Duplication vs Filtering
@@ -234,7 +244,7 @@ At 50,000 messages with 33% wanted (emea):
 - Header-based skip avoids deserialization cost for unwanted messages — 3× CPU savings at 33% selectivity
 - Schema-based filtering provides stronger guarantees but tighter Schema Registry coupling
 - Kafka Streams branching moves filtering to the server side — best for static, high-volume cases
-- ksqlDB materialized views provide declarative filtering without redeployment
+- Flink SQL provides declarative filtering without redeployment (the modern successor to ksqlDB)
 - KEDA autoscaling ties consumer replica count to Prometheus lag metric
 - Cap `maxReplicaCount` to partition count per consumer group
 

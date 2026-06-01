@@ -3,6 +3,7 @@
 **Module:** 4 — Connectors, Pipelines & Integrations
 **Duration:** 60–75 minutes
 **Difficulty:** Intermediate
+**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 

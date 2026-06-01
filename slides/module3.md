@@ -69,6 +69,11 @@ Alertmanager → PagerDuty / Slack / Email
 | `rebalance-rate-and-time` | frequent → instability |
 | `assigned-partitions` | imbalanced across consumers |
 
+> **Kafka 4 — KIP-848 rebalance protocol:** groups on the new `group.protocol=consumer`
+> rebalance incrementally (broker-coordinated), so `rebalance-rate-and-time` should be
+> far lower than on the old client-side protocol. Check a group's protocol with
+> `kafka-consumer-groups.sh --describe --group <g> --state`.
+
 ---
 
 ## Monitoring & Tooling Stack
@@ -78,7 +83,10 @@ Alertmanager → PagerDuty / Slack / Email
 | **Prometheus + Grafana** | Broker and consumer dashboards, alerting, lag thresholds |
 | **Kafka UI** | Topic management, consumer group operations, visual inspection |
 | **Kafdrop** | Lightweight quick inspection of topic contents and consumer state |
-| **Confluent Control Center** | Enterprise-grade observability with schema and connector visibility |
+| **Confluent Control Center** | Commercial option — enterprise observability with schema/connector visibility (not in this course's lab stack) |
+
+> This course's lab environment uses **Prometheus + Grafana + Kafka UI**. Control Center
+> is listed for awareness; it is a paid Confluent product and not required here.
 
 ---
 
@@ -160,8 +168,9 @@ kafka-configs.sh --bootstrap-server kafka:9092 \
 ```
 
 **Audit logging:**
-- Enable `log4j.logger.kafka.authorizer.logger` in broker config
-- Route to a dedicated topic for compliance tracking
+- Raise the `kafka.authorizer.logger` level in the broker logging config
+- Note: Kafka 4 moved from Log4j 1.x to **Log4j2** — configure this in `log4j2.yaml`, not the old `log4j.properties` format
+- Route authorizer logs to a dedicated topic/SIEM for compliance tracking
 
 ---
 
@@ -245,7 +254,7 @@ kafka-log-dirs.sh --bootstrap-server kafka:9092 \
 **Module 4 — Connectors, Pipelines & Integrations**
 
 - Kafka Connect deep dive: source, sink, offset management, DLQ
-- Integration patterns: S3, Elasticsearch, Flink, Spark, NiFi
+- Integration patterns: S3, Elasticsearch, Flink, Spark, Iceberg/lakehouse
 - Enterprise integration patterns and backpressure management
 
 ---

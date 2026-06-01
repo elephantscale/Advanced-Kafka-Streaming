@@ -11,8 +11,8 @@ Elephant Scale
 - Source connectors, sink connectors, offset management
 - Error handling, retries, and Dead Letter Queues
 - Custom connector development
-- Integration patterns: S3, Elasticsearch, Flink, Spark, NiFi
-- Stream-to-batch handoff
+- Integration patterns: S3, Elasticsearch, Flink, Spark, Iceberg/lakehouse
+- Stream-to-batch handoff and the lakehouse path
 - Backpressure management
 - Enterprise integration patterns
 
@@ -123,9 +123,10 @@ JDBC connector offset:
 
 On restart: connector **resumes from last stored offset** — no duplicates, no data loss.
 
-For **exactly-once** source connectors (Kafka 3.3+):
+For **exactly-once** source connectors (GA since Kafka 3.3, standard in Kafka 4):
 - Offsets are committed atomically with the Kafka produce transaction
 - No duplicates even on connector worker failure
+- Enable with `exactly.once.source.support=enabled` on the Connect worker
 
 ---
 
@@ -226,6 +227,11 @@ Kafka (real-time)
 - **Lambda architecture** — dual path (real-time + batch), merge results
 - **Kappa architecture** — single Kafka path, replay for batch (preferred when retention allows)
 
+**Modern lakehouse path (2026):** instead of landing raw files, sink directly to
+**Apache Iceberg** tables — via the Iceberg Sink Connector, or Confluent **Tableflow**
+(Kafka topics materialized as Iceberg/Delta tables). Query from Spark, Flink, Trino, or
+Athena with no separate ETL job. Pairs naturally with Tiered Storage.
+
 ---
 
 ## Backpressure Management
@@ -266,7 +272,7 @@ OrderPlaced → PaymentRequested → PaymentCompleted → OrderFulfilled
 - Internal topics make workers completely stateless and fault-tolerant
 - Configure `errors.tolerance`, retries, and DLQ for production resilience
 - Flink and Spark both have mature native Kafka integrations
-- Stream-to-batch: S3 sink + Kappa architecture is the modern approach
+- Stream-to-batch: S3 sink + Kappa architecture, increasingly going straight to an Iceberg lakehouse (Tableflow)
 - Enterprise patterns: outbox, saga, event-carried state transfer
 
 ---
