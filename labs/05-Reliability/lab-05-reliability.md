@@ -31,7 +31,12 @@ By the end of this lab you will be able to:
 
 ## Lab Environment
 
-> **Lab environment (same across all seven labs):** Apache **Kafka 4.x in KRaft mode** — ZooKeeper-free. These labs use a local **Docker Compose** cluster; the main course runs on **Strimzi (Kubernetes)**, where every `kafka-*.sh` command is identical — just run it via `kubectl exec` into a broker pod instead of `docker exec kafka-1`. Some labs use Kafka 4 preview features (**Share Groups / KIP-932**, **KIP-848** rebalance protocol, **ELR / KIP-966**) that must be enabled on the cluster; if a step reports one unavailable, treat it as instructor-led. Full setup and prerequisites: `labs/SETUP.md`.
+> **Lab environment** — same across all seven labs
+>
+> - Apache **Kafka 4.x in KRaft mode** — ZooKeeper-free.
+> - Local **Docker Compose** cluster. The main course runs on **Strimzi (Kubernetes)**, where every `kafka-*.sh` command is identical — just run it via `kubectl exec` into a broker pod instead of `docker exec kafka-1`.
+> - Some labs use Kafka 4 preview features (**Share Groups / KIP-932**, **KIP-848** rebalance protocol, **ELR / KIP-966**) that must be enabled on the cluster. If a step reports one unavailable, treat it as instructor-led.
+> - Full setup and prerequisites: `labs/SETUP.md`.
 
 ```bash
 docker compose up -d
