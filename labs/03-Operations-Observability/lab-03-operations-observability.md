@@ -1,9 +1,9 @@
 # Lab 3 — Kafka Operations & Observability
 
-**Module:** 3 — Kafka Operations & Observability
-**Duration:** 60–75 minutes
-**Difficulty:** Intermediate
-**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
+- **Module:** 3 — Kafka Operations & Observability
+- **Duration:** 60–75 minutes
+- **Difficulty:** Intermediate
+- **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 

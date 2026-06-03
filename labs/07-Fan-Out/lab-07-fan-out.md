@@ -1,9 +1,9 @@
 # Lab 7 — High-Volume Fan-Out Best Practices
 
-**Module:** 7 — High-Volume Fan-Out Best Practices
-**Duration:** 75–90 minutes
-**Difficulty:** Advanced
-**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
+- **Module:** 7 — High-Volume Fan-Out Best Practices
+- **Duration:** 75–90 minutes
+- **Difficulty:** Advanced
+- **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 

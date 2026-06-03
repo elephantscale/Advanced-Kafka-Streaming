@@ -1,9 +1,9 @@
 # Lab 2 — Examining Kafka Internals
 
-**Module:** 2 — Kafka Internals & Cluster Architecture
-**Duration:** 60–75 minutes
-**Difficulty:** Intermediate
-**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
+- **Module:** 2 — Kafka Internals & Cluster Architecture
+- **Duration:** 60–75 minutes
+- **Difficulty:** Intermediate
+- **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 

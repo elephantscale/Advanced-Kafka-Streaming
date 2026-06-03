@@ -1,9 +1,9 @@
 # Lab 5 — Reliability, Scaling & Performance
 
-**Module:** 5 — Reliability, Scaling & Performance
-**Duration:** 75–90 minutes
-**Difficulty:** Intermediate–Advanced
-**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
+- **Module:** 5 — Reliability, Scaling & Performance
+- **Duration:** 75–90 minutes
+- **Difficulty:** Intermediate–Advanced
+- **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 

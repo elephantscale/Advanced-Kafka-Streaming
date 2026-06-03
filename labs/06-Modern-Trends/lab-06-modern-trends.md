@@ -1,9 +1,9 @@
 # Lab 6 — Modern Kafka & Streaming Trends
 
-**Module:** 6 — Modern Kafka & Streaming Trends
-**Duration:** 60 minutes
-**Difficulty:** Intermediate
-**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
+- **Module:** 6 — Modern Kafka & Streaming Trends
+- **Duration:** 60 minutes
+- **Difficulty:** Intermediate
+- **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 

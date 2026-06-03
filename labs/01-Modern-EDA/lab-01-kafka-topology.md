@@ -1,9 +1,9 @@
    # Lab 1 — Exploring Kafka Cluster Topology and Topic Configuration
 
-**Module:** 1 — Modern Event-Driven Architecture with Kafka
-**Duration:** 60–75 minutes
-**Difficulty:** Foundational (for experienced developers new to Kafka)
-**Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
+- **Module:** 1 — Modern Event-Driven Architecture with Kafka
+- **Duration:** 60–75 minutes
+- **Difficulty:** Foundational (for experienced developers new to Kafka)
+- **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
 ---
 
