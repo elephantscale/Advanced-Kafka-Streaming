@@ -1,7 +1,8 @@
 # Course Build Plan — Advanced Kafka with Streaming Architecture
 
 **Status:** working plan. Verify existing labs first, then build the new content below.
-**Last updated:** 2026-06-02
+**Delivery date:** 2026-07-06 (4 days × 8h, client Cognixia) — ~5 weeks of lead time.
+**Last updated:** 2026-06-03
 
 ---
 
