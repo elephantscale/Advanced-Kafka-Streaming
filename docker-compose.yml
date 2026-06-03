@@ -1,0 +1,105 @@
+# Advanced Kafka Streaming — lab cluster
+#
+# Apache Kafka 4.x in KRaft mode (ZooKeeper-free). Three combined
+# broker+controller nodes + Kafka UI. Kafka 4 preview features
+# (Share Groups / KIP-932, KIP-848 rebalance protocol) are enabled.
+#
+# Listener design (this is the part that makes the labs work):
+#   CONTROLLER (:9093)  KRaft controller quorum, docker network only.
+#   PLAINTEXT  (:9092)  Inter-broker + in-container clients + kafka-ui.
+#                       Advertised by docker name (kafka-1:9092, ...), so a
+#                       `docker exec kafka-1 ... --bootstrap-server localhost:9092`
+#                       can follow metadata to leaders on ANY broker.
+#   HOST       (:9094)  Clients on your machine. Advertised as localhost:909X
+#                       and published to that host port. NOT used inside containers.
+#
+# Result:
+#   docker exec kafka-1 ... --bootstrap-server localhost:9092   -> works for all brokers
+#   host client (Python, nc) ... localhost:9092 / 9093 / 9094    -> works for all brokers
+
+x-kafka-common: &kafka-common
+  image: apache/kafka:4.0.0
+  networks: [kafka]
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+    interval: 10s
+    timeout: 10s
+    retries: 15
+    start_period: 20s
+
+x-kafka-env: &kafka-env
+  # Put the Kafka CLI tools on PATH so the labs' bare `docker exec kafka-1
+  # kafka-topics.sh ...` form resolves (the apache/kafka image keeps them in
+  # /opt/kafka/bin, which is not on PATH by default).
+  PATH: "/opt/kafka/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  # Same cluster id on every node (required to form one KRaft cluster).
+  CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+  KAFKA_PROCESS_ROLES: "broker,controller"
+  KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+  KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+  KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+  KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:9094"
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT"
+  # Internal topics replicate across all three brokers.
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+  KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "3"
+  KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "2"
+  # Kafka 4 preview features (KIP-848 next-gen rebalance + KIP-932 share groups).
+  KAFKA_GROUP_COORDINATOR_REBALANCE_PROTOCOLS: "classic,consumer,share"
+  KAFKA_GROUP_SHARE_ENABLE: "true"
+  KAFKA_UNSTABLE_API_VERSIONS_ENABLE: "true"
+
+services:
+  kafka-1:
+    <<: *kafka-common
+    container_name: kafka-1
+    ports:
+      - "9092:9094"   # host 9092 -> kafka-1 HOST listener
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: "1"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092,HOST://localhost:9092"
+
+  kafka-2:
+    <<: *kafka-common
+    container_name: kafka-2
+    ports:
+      - "9093:9094"   # host 9093 -> kafka-2 HOST listener
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: "2"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092,HOST://localhost:9093"
+
+  kafka-3:
+    <<: *kafka-common
+    container_name: kafka-3
+    ports:
+      - "9094:9094"   # host 9094 -> kafka-3 HOST listener
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: "3"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092,HOST://localhost:9094"
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafka-ui
+    networks: [kafka]
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "advanced-kafka-lab"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+
+networks:
+  kafka:
+    name: kafka
