@@ -354,11 +354,11 @@ You will:
 2. Create topics with different partition counts and replication factors
 3. Examine partition assignment and leader distribution
 4. Configure and observe retention policies and log compaction
-5. Visualize topics, partitions, and lag in **Kafka UI / Kafdrop**
+5. Visualize topics, partitions, and lag in **Kafka UI**
 6. Contrast consumer groups with **Share Groups (KIP-932)** — native queue semantics
 
 Environment: KRaft Kafka 4 cluster (Docker Compose) + Kafka UI
-Time: ~60 minutes
+Time: 60–75 minutes
 
 ---
 
