@@ -1,5 +1,5 @@
 about.md
-module1.mdstar
+module1.md1
 module2.md
 module3.md
 module4.md
