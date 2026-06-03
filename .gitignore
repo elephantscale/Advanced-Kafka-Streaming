@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated slide build artifacts (slides-assembler output)
+slides/assembly.out/
+slides/release/
+*.pptx
