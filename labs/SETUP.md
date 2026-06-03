@@ -35,6 +35,10 @@ pip install confluent-kafka flask requests
 
 ## Bring Up Core Stack
 
+Run from the repository root (or any folder inside it — `docker compose` searches
+parent directories for `docker-compose.yml`). It will not find the file from outside
+the repo.
+
 ```bash
 docker compose up -d
 docker compose ps
