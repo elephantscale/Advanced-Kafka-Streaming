@@ -93,6 +93,7 @@ docker exec kafka-1 kafka-dump-log.sh \
 ```
 
 **Questions:**
+
 1. What fields are in each log entry?
 2. Can you see the key and value in plaintext?
 3. What is the `magic` field?
@@ -140,6 +141,7 @@ k1 kafka-consumer-groups.sh \
 ```
 
 **Questions:**
+
 1. What information is stored in `__consumer_offsets`?
 2. Where is the committed offset for partition 0 of `internals-test`?
 3. Consume 10 more messages — how does the offset change?
@@ -228,6 +230,7 @@ python txn_consumer.py
 ```
 
 **Questions:**
+
 1. Are the transactional events visible to `read_committed` consumers?
 2. What would happen if you used `read_uncommitted` isolation?
 3. What happens to events from an aborted transaction?
@@ -247,6 +250,7 @@ k1 kafka-console-consumer.sh \
 ```
 
 **Questions:**
+
 1. What states does the transaction go through?
 2. What is the `producerId` (PID)?
 
@@ -311,6 +315,7 @@ k1 kafka-dump-log.sh \
 ```
 
 **Questions:**
+
 1. What `producerId` (PID) was assigned to our producer? (Read it from the dump above — `-1` means a non-idempotent batch.)
 2. How does Kafka use `producerId + producerEpoch + baseSequence` to detect duplicates?
 3. How does the sequence number increment across the three sends?
@@ -378,6 +383,7 @@ producer.flush()
 ```
 
 **Questions:**
+
 1. Can you produce with `acks=all` when a broker is down (with ISR < `min.insync.replicas`)?
 2. What error do you get?
 3. Restart broker-2 — how long until ISR is restored?
@@ -398,6 +404,7 @@ k1 kafka-topics.sh --bootstrap-server localhost:9092 \
 ```
 
 **Questions:**
+
 1. When broker-2 left the ISR above, did its replicas appear in the `Elr` column?
 2. How does ELR change the safety of a clean leader election when the ISR is empty?
 3. What problem ("last replica standing") did Kafka have *before* ELR existed?
@@ -427,6 +434,7 @@ docker exec kafka-1 kafka-metadata-shell.sh \
 ```
 
 **Questions:**
+
 1. What is stored in the metadata log?
 2. Which node is the active controller?
 3. How does KRaft differ from ZooKeeper for metadata storage?

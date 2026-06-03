@@ -122,6 +122,7 @@ print(f'Forwarded {forwarded} high-priority events')
 ```
 
 **Questions:**
+
 1. Roughly what percentage of events passed the filter?
 2. Where is the better place to filter — at the producer, in a pipeline stage, or at the consumer? Why?
 
@@ -183,6 +184,7 @@ python feature_enricher.py
 ```
 
 **Questions:**
+
 1. Why use a rolling window keyed by `device_id` rather than a global window?
 2. What happens to state if this enricher process restarts mid-stream?
 
@@ -259,6 +261,7 @@ print(f'Processed {n} events, {alerts} alerts raised')
 ```
 
 **Questions:**
+
 1. What are the latency trade-offs between embedded inference vs external model serving?
 2. What happens to the pipeline if the scoring service is temporarily unavailable?
 3. How would you implement model versioning in this pipeline?
@@ -297,6 +300,7 @@ wait
 ```
 
 **Questions:**
+
 1. How are the 60 jobs distributed across 3 workers?
 2. Can any worker process the same job twice? Why or why not?
 3. What caps the maximum parallelism of the worker pool?
@@ -328,6 +332,7 @@ Assess your pipeline against these migration criteria for Amazon MSK Serverless 
 Document gaps and action items for any ❌ items.
 
 **Questions:**
+
 1. Which of these criteria is hardest to retrofit into an existing pipeline?
 2. What is the biggest operational difference between self-managed Kafka and MSK Serverless?
 3. When would you choose Confluent Cloud over MSK Serverless?
@@ -360,4 +365,3 @@ You built:
 ## What's Next
 
 **Module 7** tackles high-volume fan-out — designing topic layouts and filtering strategies for 10 million messages per second across 10 overlapping consumer groups.
-

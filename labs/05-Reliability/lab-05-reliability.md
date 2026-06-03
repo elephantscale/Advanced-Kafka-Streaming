@@ -132,6 +132,7 @@ done
 | acks=all + batch=128KB + lz4 | | | |
 
 **Questions:**
+
 1. What was the throughput improvement from batching + compression?
 2. What is the throughput penalty for `acks=all` vs `acks=1`?
 3. Which compression algorithm gave the best throughput for random 1KB records?
@@ -207,6 +208,7 @@ kill $SLOW_PID 2>/dev/null
 ```
 
 **Questions:**
+
 1. How quickly did lag grow with the slow consumer?
 2. How quickly did lag decrease when additional consumers were added?
 3. At what point does adding more consumers stop reducing lag further?
@@ -285,6 +287,7 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 ```
 
 **Questions:**
+
 1. How many partitions were revoked and reassigned per rebalance in eager mode?
 2. In cooperative mode, did any consumer stop processing completely?
 3. Under KIP-848, what does the `--state` output report for the protocol, and how does the rebalance disruption compare to the client-side strategies?
@@ -341,6 +344,7 @@ docker exec kafka-1 kafka-reassign-partitions.sh \
 ```
 
 **Questions:**
+
 1. Why throttle replication during reassignment?
 2. What does `--verify` show while reassignment is in progress?
 3. How do you remove the throttle after reassignment completes?
@@ -397,6 +401,7 @@ kill $PROD_PID 2>/dev/null
 ```
 
 **Questions:**
+
 1. How long did leader election take after the broker failure?
 2. Were any messages lost during failover (check producer error output)?
 3. How long until ISR was fully restored after broker restart?
@@ -459,6 +464,7 @@ python e2e_latency.py
 ```
 
 **Questions:**
+
 1. What is the p99 end-to-end latency?
 2. How does increasing `linger.ms` affect p99 latency?
 3. What is the fundamental trade-off between throughput and latency?
@@ -493,4 +499,3 @@ You performed:
 ## What's Next
 
 **Module 6** explores modern Kafka trends — edge architectures, AI-driven streaming, serverless deployments, and multi-cluster federation.
-

@@ -146,6 +146,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ```
 
 **Questions:**
+
 1. How many events were read on the first poll?
 2. How quickly did new inserts appear in Kafka?
 3. What fields are present in each event?
@@ -201,6 +202,7 @@ docker exec minio mc ls --recursive local/kafka-data-lake/
 ```
 
 **Questions:**
+
 1. What is the time-based path structure of the written files?
 2. What determines when a new file is created (`flush.size` vs `rotate.interval.ms`)?
 3. How many records are in each file?
@@ -277,6 +279,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ```
 
 **Questions:**
+
 1. What error headers are attached to DLQ messages?
 2. Without `errors.tolerance=all`, what would happen when a bad record arrives?
 3. How would you build a DLQ reprocessing pipeline?
@@ -318,6 +321,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ```
 
 **Questions:**
+
 1. Did the connector pick up all rows inserted while paused?
 2. How did Kafka Connect know exactly where to resume?
 3. What would happen if you deleted and recreated the connector from scratch?
@@ -341,6 +345,7 @@ curl -X PUT http://localhost:8083/connectors/postgres-orders-source/config \
 ```
 
 **Questions:**
+
 1. Did increasing `tasks.max` improve throughput for the JDBC connector?
 2. For what types of connectors does `tasks.max` provide linear scaling?
 3. What is the difference between connector-level parallelism and topic partition parallelism?
@@ -373,4 +378,3 @@ You deployed and operated:
 ## What's Next
 
 **Module 5** covers reliability, performance tuning, and cluster scaling — you will stress-test a Kafka cluster and analyze rebalance and failover behavior under load.
-

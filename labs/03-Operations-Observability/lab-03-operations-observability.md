@@ -45,6 +45,7 @@ docker compose ps
 ```
 
 Access:
+
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 - Kafdrop: `http://localhost:9000`
@@ -73,6 +74,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_un
 ```
 
 **Questions:**
+
 1. How many broker targets are scraping successfully?
 2. What does `activecontrollercount != 1` indicate?
 
@@ -143,6 +145,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=max(kafka_consumergroup_lag) b
 ```
 
 **Questions:**
+
 1. At what rate is lag growing (records/second)?
 2. Which partition shows the highest lag?
 
@@ -203,6 +206,7 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 ```
 
 **Questions:**
+
 1. What happens to lag after the offset reset?
 2. What is the risk of resetting offsets to earliest on a production topic?
 
@@ -244,6 +248,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_un
 ```
 
 **Questions:**
+
 1. How many partitions became under-replicated?
 2. How long did it take for URP to return to zero after restart?
 3. What would a Prometheus alert rule look like for this signal?

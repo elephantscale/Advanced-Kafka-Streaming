@@ -129,6 +129,7 @@ Complete this table for the **10M msg/sec, 10 consumer** scenario:
 | Header-based filtering on 1 topic | Low | Low | Moderate (header-only skip) | Low |
 
 **Questions:**
+
 1. At what message rate does topic duplication become cost-prohibitive?
 2. What is the cost of deserializing 10M messages/second vs reading headers only?
 
@@ -196,6 +197,7 @@ wait
 ```
 
 **Questions:**
+
 1. What was the skip rate for each consumer?
 2. How much CPU overhead does header-only inspection save vs full deserialization?
 3. What is the risk if producers don't consistently set headers?
@@ -223,6 +225,7 @@ Review this approach without running it (requires Avro + Schema Registry):
 ```
 
 **Discussion questions:**
+
 1. When does schema-based filtering provide more guarantees than header-based filtering?
 2. What is the operational cost of maintaining Avro union schemas across 10 consumer variants?
 3. How does Schema Registry compatibility enforcement help multi-consumer systems?
@@ -308,6 +311,7 @@ python benchmark_filtering.py
 | Speedup | — | — | |
 
 **Questions:**
+
 1. At what fraction of messages being "wanted" does header filtering stop being worthwhile?
 2. How does this finding affect your topic design recommendation for 10M msg/sec?
 
@@ -384,6 +388,7 @@ python fanout_producer.py  # re-run at 5× scale
 Watch replicas scale from 1 → N and lag decrease as consumers are added.
 
 **Questions:**
+
 1. How does KEDA determine when to scale up vs scale down?
 2. What is `cooldownPeriod` protecting against?
 3. Why cap `maxReplicaCount` at the number of partitions assigned to this consumer group?
@@ -410,6 +415,7 @@ Implement server-side pre-filtering using Kafka Streams, removing filtering CPU 
 ```
 
 **Questions:**
+
 1. What are the operational costs of maintaining a Streams branching topology?
 2. When does server-side branching become cheaper than client-side filtering?
 3. How would you handle schema evolution in a Streams branching pipeline?
@@ -442,4 +448,3 @@ You completed:
 ## What's Next
 
 This is the final lab. Return to the **Module 7 review** to discuss your fan-out strategy choices, trade-offs, and how they apply to your organization's streaming workloads.
-

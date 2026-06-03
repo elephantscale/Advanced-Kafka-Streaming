@@ -49,6 +49,7 @@ Your machine → localhost:9092 (mapped to kafka-1)
 
 Start the environment (run from the repository root, or any folder inside it —
 `docker compose` searches parent directories for `docker-compose.yml`):
+
 ```bash
 docker compose up -d
 docker compose ps   # verify all containers are running
@@ -81,6 +82,7 @@ docker exec kafka-1 kafka-metadata-quorum.sh \
 ```
 
 **Questions:**
+
 1. How many brokers are in the cluster?
 2. Which node is the active controller (the quorum **leader**)?
 3. What is the `LeaderEpoch`, and what does it tell you about controller stability?
@@ -118,6 +120,7 @@ Topic: orders  Partitions: 6  ReplicationFactor: 3
 ```
 
 **Questions:**
+
 1. How are leaders distributed across brokers?
 2. What does the ISR column mean?
 3. Are all replicas in the ISR?
@@ -192,6 +195,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
 > `--timeout-ms 10000` makes the consumer exit after 10s of no new messages, so you are not left at a blocking prompt. It will print a `TimeoutException` on exit — that is expected.
 
 **Questions:**
+
 1. Are events for `order-1` in the same partition?
 2. What is the order of events for the same key?
 3. What happens if you consume without `--from-beginning`?
@@ -231,6 +235,7 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 ```
 
 **Questions:**
+
 1. How are partitions divided between the two consumers?
 2. What is the current lag for each partition?
 3. Start a third consumer in the same group — how do partitions rebalance?
@@ -316,6 +321,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ```
 
 **Questions:**
+
 1. After compaction, how many records exist for `user-1`? (You should see one — `v4`.)
 2. What value does `user-1` have after compaction?
 3. What guarantees the **latest** value per key always survives compaction?
@@ -348,6 +354,7 @@ docker exec kafka-1 kafka-topics.sh \
 ```
 
 **Questions:**
+
 1. Which partitions changed their leader?
 2. Are any partitions under-replicated now?
 3. Start broker-3 again — do leaders automatically rebalance?
@@ -382,6 +389,7 @@ Click through and locate the following:
 4. **Consumers → `payment-service`** — view per-partition lag as a live chart.
 
 **Questions:**
+
 1. Does the leader distribution shown in the UI match your CLI output from Exercise 6?
 2. Where does the UI surface consumer lag, and would you spot a stuck consumer faster here or via the CLI?
 3. Which view would you hand to an on-call engineer during an incident, and why?
@@ -440,6 +448,7 @@ docker exec kafka-1 kafka-share-groups.sh \
 ```
 
 **Questions:**
+
 1. In Exercise 4 each partition went to exactly one consumer. How is record
    delivery distributed across the two **share** consumers here?
 2. Why does a share group not need more consumers than partitions to scale
@@ -467,6 +476,7 @@ import random, json
 ```
 
 **Questions:**
+
 1. Is the partition distribution even?
 2. What determines which partition each key goes to?
 3. How many events per key per partition?
@@ -504,4 +514,3 @@ You have explored:
 ## What's Next
 
 **Module 2** goes deep inside the Kafka broker — log segments, KRaft, ISR mechanics, upgrade strategies, and broker configuration best practices.
-
