@@ -32,6 +32,11 @@ x-kafka-env: &kafka-env
   # kafka-topics.sh ...` form resolves (the apache/kafka image keeps them in
   # /opt/kafka/bin, which is not on PATH by default).
   PATH: "/opt/kafka/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  # Cap each broker's JVM heap. The apache/kafka image defaults to ~1 GB per
+  # broker, so three brokers reserve 3 GB+ before OS page cache — enough to
+  # swap-thrash a small VM into unresponsiveness. 512m x3 ≈ 1.5 GB of heap,
+  # which fits comfortably and degrades gracefully if a VM is undersized.
+  KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
   # Same cluster id on every node (required to form one KRaft cluster).
   CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
   KAFKA_PROCESS_ROLES: "broker,controller"
@@ -92,6 +97,8 @@ services:
       KAFKA_CLUSTERS_0_NAME: "advanced-kafka-lab"
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
       DYNAMIC_CONFIG_ENABLED: "true"
+      # Cap the UI's JVM heap too, so it can't balloon on a small VM.
+      JAVA_OPTS: "-Xmx256m"
     depends_on:
       kafka-1:
         condition: service_healthy
