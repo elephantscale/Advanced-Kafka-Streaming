@@ -221,3 +221,6 @@ __marimo__/
 slides/assembly.out/
 slides/release/
 *.pptx
+
+# Local-only working notes / email drafts (not course material)
+drafts/
