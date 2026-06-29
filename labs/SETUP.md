@@ -21,8 +21,71 @@ If a step reports a feature is unavailable, treat it as instructor-led and verif
 
 - Linux/macOS with Docker and Docker Compose
 - Python 3.9+
-- Java 17 (for Kafka CLI tools)
 - 8+ GB RAM recommended
+
+> The Kafka CLI tools (`kafka-*.sh`) run **inside** the broker containers via
+> `docker exec`, so no host JDK is required.
+
+## One-command setup (recommended)
+
+The student VMs are bare. The fastest path is the bootstrap script, which installs
+**everything** below (Docker + Compose v2, Java 17, Python venv, CLI helpers) and
+adds you to the `docker` group — run it once per VM:
+
+```bash
+cd <repo root>
+./labs/bootstrap.sh        # run as your normal user; it calls sudo itself — do NOT run as root
+newgrp docker              # apply docker-group membership in this shell (or log out/in)
+```
+
+It is safe to re-run. The manual steps below explain what it does, and serve as a
+fallback for non-Ubuntu VMs.
+
+## Install Docker (one-time, per VM)
+
+The student VMs do **not** ship with Docker. Run this once on each VM before
+anything else. These steps are for **Ubuntu/Debian**; if your VMs are RHEL /
+Amazon Linux / Fedora, ask your instructor for the `dnf`-based equivalent.
+
+> Do **not** use `apt install docker.io` — the distro package is often too old
+> and may not include the `docker compose` **v2** plugin the labs require.
+
+```bash
+# 1. Remove any old/conflicting packages (safe if none are present)
+for p in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
+  sudo apt-get remove -y $p 2>/dev/null || true
+done
+
+# 2. Add Docker's official apt repository
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 3. Install the engine, CLI, and the Compose v2 plugin
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 4. Run docker without sudo (so the labs' bare `docker exec ...` work)
+sudo usermod -aG docker $USER
+newgrp docker   # applies the group in THIS shell; otherwise log out/in
+```
+
+Verify:
+
+```bash
+docker --version          # Docker version 27.x or newer
+docker compose version    # Docker Compose version v2.x  (note: "compose", no hyphen)
+docker run --rm hello-world
+```
+
+> **Debian note:** in step 2 replace both `…/linux/ubuntu…` URLs with
+> `…/linux/debian…`.
 
 ## Python Packages
 
