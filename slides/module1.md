@@ -73,15 +73,13 @@ Kafka is the **central nervous system** of the modern data platform.
 
 ## The Modern Event-Driven Technology Stack
 
- Component  Role
------------
- Kafka Core  Durable event log, topic management, replication
- Kafka Connect  Data integration — source and sink connectors
- Kafka Streams  Stream processing library (JVM)
- ksqlDB  SQL interface for stream processing
- Schema Registry  Schema management (Avro, Protobuf, JSON Schema)
- Monitoring Layer  Prometheus, Grafana, Kafka UI, Cruise Control
- Security Layer  TLS, SASL, ACLs, RBAC
+- **Kafka Core** — Durable event log, topic management, replication
+- **Kafka Connect** — Data integration: source and sink connectors
+- **Kafka Streams** — Stream processing library (JVM)
+- **ksqlDB** — SQL interface for stream processing
+- **Schema Registry** — Schema management (Avro, Protobuf, JSON Schema)
+- **Monitoring Layer** — Prometheus, Grafana, Kafka UI, Cruise Control
+- **Security Layer** — TLS, SASL, ACLs, RBAC
 
 ---
 
@@ -130,14 +128,12 @@ Analytics │ Data Lake │ Microservices │ AI Pipelines
 
 ## Event Streams vs Queue Semantics
 
- Property  Message Queue  Kafka Event Stream
-----------
- Message deletion  After consumption  Configurable retention
- Multiple consumers  Competing consumers  Each group reads independently
- Replay  Not possible  Yes — seek to any offset
- Ordering  Per-queue  Per-partition
- Durability  Varies  Configurable replication
- Backpressure  Built-in  Consumer controls its own pace
+- **Message deletion** — Queue: after consumption · Kafka: configurable retention
+- **Multiple consumers** — Queue: competing consumers · Kafka: each group reads independently
+- **Replay** — Queue: not possible · Kafka: yes, seek to any offset
+- **Ordering** — Queue: per-queue · Kafka: per-partition
+- **Durability** — Queue: varies · Kafka: configurable replication
+- **Backpressure** — Queue: built-in · Kafka: consumer controls its own pace
 
 **Native queues — Share Groups (KIP-932, Kafka 4):**
 - Multiple consumers read from the **same partitions** cooperatively (no partition-to-consumer binding)
@@ -263,13 +259,11 @@ Benefits:
 
 Kafka integrates with the full data ecosystem:
 
- System  Integration Pattern
----------
- Apache Spark  Spark Structured Streaming reads from Kafka
- Apache Flink  Native Kafka source/sink connectors
- REST APIs  Kafka REST Proxy for HTTP-based producers/consumers
- AI/ML Pipelines  Feature stores, model serving, inference logging
- Cloud (AWS/GCP/Azure)  MSK, Confluent Cloud, Event Hubs
+- **Apache Spark** — Spark Structured Streaming reads from Kafka
+- **Apache Flink** — Native Kafka source/sink connectors
+- **REST APIs** — Kafka REST Proxy for HTTP-based producers/consumers
+- **AI/ML Pipelines** — Feature stores, model serving, inference logging
+- **Cloud (AWS/GCP/Azure)** — MSK, Confluent Cloud, Event Hubs
 
 ---
 
@@ -310,13 +304,11 @@ Design principle: **events are the source of truth**, not the database.
 
 Production deployments at scale:
 
- Company  Scale
---------
- LinkedIn  7 trillion messages/day
- Uber  1 trillion messages/day
- Netflix  Trillions of events/day
- Cloudflare  Petabytes/day
- Walmart  Billions of events during peak
+- **LinkedIn** — 7 trillion messages/day
+- **Uber** — 1 trillion messages/day
+- **Netflix** — Trillions of events/day
+- **Cloudflare** — Petabytes/day
+- **Walmart** — Billions of events during peak
 
 > Kafka is proven at the most extreme scales on the planet.
 

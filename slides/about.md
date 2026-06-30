@@ -6,15 +6,13 @@ Elephant Scale
 
 ## Agenda
 
- Module  Topic
----------------
- 1  Modern Event-Driven Architecture with Kafka
- 2  Kafka Internals & Cluster Architecture
- 3  Kafka Operations & Observability
- 4  Connectors, Pipelines & Integrations
- 5  Reliability, Scaling & Performance
- 6  Modern Kafka & Streaming Trends
- 7  High-Volume Fan-Out Best Practices
+- **1.** Modern Event-Driven Architecture with Kafka
+- **2.** Kafka Internals & Cluster Architecture
+- **3.** Kafka Operations & Observability
+- **4.** Connectors, Pipelines & Integrations
+- **5.** Reliability, Scaling & Performance
+- **6.** Modern Kafka & Streaming Trends
+- **7.** High-Volume Fan-Out Best Practices
 
 Notes:
 

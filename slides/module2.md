@@ -203,15 +203,13 @@ Application
 
 ## Producer Configuration — Key Parameters
 
- Parameter  Description  Default
------------
- `acks`  Durability guarantee (0, 1, all)  1
- `batch.size`  Max bytes per batch  16384 (16KB)
- `linger.ms`  Wait time to fill batch  0 (no wait)
- `compression.type`  none, gzip, snappy, lz4, zstd  none
- `max.in.flight.requests.per.connection`  Concurrent unacknowledged requests  5
- `retries`  Retry count on failure  MAX_INT
- `enable.idempotence`  Exactly-once producer semantics  true (Kafka 3.0+)
+- **`acks`** — Durability guarantee (0, 1, all). Default: 1
+- **`batch.size`** — Max bytes per batch. Default: 16384 (16 KB)
+- **`linger.ms`** — Wait time to fill a batch. Default: 0 (no wait)
+- **`compression.type`** — none, gzip, snappy, lz4, zstd. Default: none
+- **`max.in.flight.requests.per.connection`** — Concurrent unacknowledged requests. Default: 5
+- **`retries`** — Retry count on failure. Default: MAX_INT
+- **`enable.idempotence`** — Exactly-once producer semantics. Default: true (Kafka 3.0+)
 
 ---
 
