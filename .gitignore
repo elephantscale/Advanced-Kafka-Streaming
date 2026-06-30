@@ -218,7 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Generated slide build artifacts (slides-assembler output)
-slides/assembly.out/
+**/assembly.out*/
 
 # Local-only working notes / email drafts (not course material)
 drafts/
