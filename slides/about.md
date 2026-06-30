@@ -31,7 +31,7 @@ Notes:
 
    - Ask a lot of questions
 
-Notes
+Notes:
 
 ---
 ## Our Teaching Philosophy
@@ -44,7 +44,7 @@ Notes
 
  * Real production patterns — not toy examples
 
-Notes
+Notes:
 
 ---
 
@@ -52,7 +52,7 @@ Notes
 
 <img src="../images/any-key.png" style="width:50%;"/>
 
-Notes
+Notes:
 
 ---
 
@@ -66,7 +66,7 @@ Notes
 
 <img src="../images/classroom-instruction.png" style="width:70%;"/>
 
-Notes
+Notes:
 
 ---
 
