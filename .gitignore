@@ -219,8 +219,8 @@ __marimo__/
 
 # Generated slide build artifacts (slides-assembler output)
 slides/assembly.out/
-slides/release/
-*.pptx
 
 # Local-only working notes / email drafts (not course material)
 drafts/
+# macOS Finder metadata
+**/.DS_Store
