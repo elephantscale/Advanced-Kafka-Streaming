@@ -23,7 +23,7 @@ Elephant Scale
 - The three creators left LinkedIn in **2014** to found **Confluent**, now the main commercial steward of Kafka.
 - Full circle: LinkedIn today runs Kafka at **~7 trillion messages/day** (see the scale slide).
 
-> Teaching hook: the name is the fact students remember — a data system named after the author of bureaucratic nightmares, built to *remove* plumbing chaos.
+<img src="../images/Franz_Kafka,_1923.jpg">
 
 ---
 
