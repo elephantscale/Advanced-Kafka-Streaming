@@ -236,6 +236,35 @@ Consumer Group A (reads all partitions):
 
 ---
 
+## Lab 1 — Cluster Topology & Topics
+
+**Stop here and run the lab now.** You'll apply everything from the last few slides
+on a live 3-broker KRaft cluster.
+
+You will:
+1. Connect to a running KRaft cluster and inspect broker/quorum metadata
+2. Create topics with different partition counts and replication factors
+3. Examine partition assignment and leader distribution
+4. Configure and observe retention policies and log compaction
+5. Visualize topics, partitions, and lag in **Kafka UI**
+6. Contrast consumer groups with **Share Groups (KIP-932)** — native queue semantics
+
+Environment: KRaft Kafka 4 cluster (Docker Compose) + Kafka UI · **60–75 minutes**
+
+---
+
+## Part 2 — The Kafka Ecosystem (after the lab)
+
+Welcome back. You've built topics, watched leaders move, and seen consumer vs share
+groups on a live cluster.
+
+Now we zoom out from the core to the tools around it — **Connect, Streams, ksqlDB,
+Schema Registry** — and the patterns that put Kafka at the center of a data platform.
+
+> Quick debrief first: what surprised you in the lab — leaders rebalancing, compaction, share vs consumer groups?
+
+---
+
 ## Kafka Connect Overview
 
 Kafka Connect provides **pre-built, scalable data pipelines**.
@@ -418,23 +447,6 @@ We go deep inside the broker:
 - KRaft — ZooKeeper-free Kafka
 - Producer and consumer internals
 - Exactly-once semantics
-
----
-
-## Lab Preview — Lab 1
-
-**Explore Kafka Cluster Topology and Topic Configuration**
-
-You will:
-1. Connect to a running KRaft cluster and inspect broker/quorum metadata
-2. Create topics with different partition counts and replication factors
-3. Examine partition assignment and leader distribution
-4. Configure and observe retention policies and log compaction
-5. Visualize topics, partitions, and lag in **Kafka UI**
-6. Contrast consumer groups with **Share Groups (KIP-932)** — native queue semantics
-
-Environment: KRaft Kafka 4 cluster (Docker Compose) + Kafka UI
-Time: 60–75 minutes
 
 ---
 
