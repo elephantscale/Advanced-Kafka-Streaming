@@ -15,21 +15,6 @@ Elephant Scale
 
 ---
 
-## Why Real-Time Matters
-
-Modern enterprises need to act on data **as it happens**, not hours later.
-
-Use cases that demand real-time streaming:
-- Fraud detection (milliseconds to block a transaction)
-- IoT sensor telemetry (millions of devices)
-- Observability pipelines (logs, metrics, traces)
-- Personalization engines (act while the user is still on the page)
-- Supply chain event tracking
-
-> Streaming complements batch rather than replacing it — and the boundary is blurring (lakehouse, Iceberg, stream/batch convergence).
-
----
-
 ## What Is Event-Driven Architecture?
 
 An **event** is an immutable record that *something happened* — a fact, stated in
@@ -55,6 +40,33 @@ Why it matters: **decoupling** (services evolve independently), **scalability**
 
 ---
 
+## Where Kafka Came From
+
+- Built at **LinkedIn** around **2010** to untangle a mess of point-to-point data pipelines — every system wired to every other. They needed **one** high-throughput pipeline for activity and operational data.
+- Created by **Jay Kreps, Neha Narkhede, and Jun Rao**; open-sourced in **2011**, a top-level **Apache** project by **2012**.
+- **The name:** Kreps named it after the writer **Franz Kafka** — a system "optimized for writing" deserved an author's name (and he'd taken plenty of lit classes).
+- The three creators left LinkedIn in **2014** to found **Confluent**, now the main commercial steward of Kafka.
+- Full circle: LinkedIn today runs Kafka at **~7 trillion messages/day** (see the scale slide).
+
+> Teaching hook: the name is the fact students remember — a data system named after the author of bureaucratic nightmares, built to *remove* plumbing chaos.
+
+---
+
+## Why Real-Time Matters
+
+Modern enterprises need to act on data **as it happens**, not hours later.
+
+Use cases that demand real-time streaming:
+- Fraud detection (milliseconds to block a transaction)
+- IoT sensor telemetry (millions of devices)
+- Observability pipelines (logs, metrics, traces)
+- Personalization engines (act while the user is still on the page)
+- Supply chain event tracking
+
+> Streaming complements batch rather than replacing it — and the boundary is blurring (lakehouse, Iceberg, stream/batch convergence).
+
+---
+
 ## What Is Apache Kafka?
 
 Kafka is a **distributed event streaming platform**.
@@ -71,18 +83,6 @@ Key design goals:
 - Horizontal scalability
 
 > **Kafka 4 is KRaft-only** — ZooKeeper has been fully removed. Cluster metadata now lives in an internal Kafka log managed by a built-in controller quorum.
-
----
-
-## Where Kafka Came From
-
-- Built at **LinkedIn** around **2010** to untangle a mess of point-to-point data pipelines — every system wired to every other. They needed **one** high-throughput pipeline for activity and operational data.
-- Created by **Jay Kreps, Neha Narkhede, and Jun Rao**; open-sourced in **2011**, a top-level **Apache** project by **2012**.
-- **The name:** Kreps named it after the writer **Franz Kafka** — a system "optimized for writing" deserved an author's name (and he'd taken plenty of lit classes).
-- The three creators left LinkedIn in **2014** to found **Confluent**, now the main commercial steward of Kafka.
-- Full circle: LinkedIn today runs Kafka at **~7 trillion messages/day** (see the scale slide).
-
-> Teaching hook: the name is the fact students remember — a data system named after the author of bureaucratic nightmares, built to *remove* plumbing chaos.
 
 ---
 
