@@ -74,6 +74,18 @@ Key design goals:
 
 ---
 
+## Where Kafka Came From
+
+- Built at **LinkedIn** around **2010** to untangle a mess of point-to-point data pipelines — every system wired to every other. They needed **one** high-throughput pipeline for activity and operational data.
+- Created by **Jay Kreps, Neha Narkhede, and Jun Rao**; open-sourced in **2011**, a top-level **Apache** project by **2012**.
+- **The name:** Kreps named it after the writer **Franz Kafka** — a system "optimized for writing" deserved an author's name (and he'd taken plenty of lit classes).
+- The three creators left LinkedIn in **2014** to found **Confluent**, now the main commercial steward of Kafka.
+- Full circle: LinkedIn today runs Kafka at **~7 trillion messages/day** (see the scale slide).
+
+> Teaching hook: the name is the fact students remember — a data system named after the author of bureaucratic nightmares, built to *remove* plumbing chaos.
+
+---
+
 ## Kafka in the Enterprise Landscape
 
 ```
