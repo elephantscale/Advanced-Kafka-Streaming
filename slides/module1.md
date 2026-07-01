@@ -24,6 +24,7 @@ Elephant Scale
 - Full circle: LinkedIn today runs Kafka at **~7 trillion messages/day** (see the scale slide).
 
 <img src="../images/Franz_Kafka,_1923.jpg">
+<img src="../images/pexels-erik-karits-2093459-10959293.jpg">
 
 ---
 
@@ -64,6 +65,7 @@ Use cases that demand real-time streaming:
 - Supply chain event tracking
 
 > Streaming complements batch rather than replacing it — and the boundary is blurring (lakehouse, Iceberg, stream/batch convergence).
+![](../images/pexels-tomfisk-5982900.jpg)
 
 ---
 
@@ -118,6 +120,20 @@ Kafka is the **central nervous system** of the modern data platform.
 - **Monitoring Layer** — Prometheus, Grafana, Kafka UI, Cruise Control
 - **Security Layer** — TLS, SASL, ACLs, RBAC
 
+![](../images/pexels-tanyakorn-10114593.jpg)
+
+---
+
+## A Short History of Kafka Streams
+
+- **Before 2016** — processing Kafka data meant hand-rolled consumer/producer loops or bolting on separate clusters (Storm, Samza, Spark Streaming). Stateful joins and windows were DIY and painful.
+- **2016 (Kafka 0.10)** — **Kafka Streams** arrives: a **client library, not a cluster**. Stateful processing — joins, aggregations, windowing — runs *inside your app*, made fault-tolerant by changelog topics.
+- **2017 (Kafka 0.11)** — **exactly-once** processing semantics land, making Streams safe for money-movement pipelines.
+- **2017 → ksqlDB** — Confluent adds **KSQL / ksqlDB**, a SQL layer built *on top of* Kafka Streams.
+- **2023 → today** — momentum shifts to **Apache Flink** (Confluent acquired Immerok, 2023); **Flink SQL** is now the favored engine and ksqlDB is de-emphasized. Kafka Streams remains the go-to for **in-app JVM** processing.
+
+> The defining idea: Kafka Streams is a **library, not a platform** — no separate processing cluster to operate. That "just add a dependency" model is why it spread.
+
 ---
 
 ## Kafka Core Concepts
@@ -137,6 +153,23 @@ Kafka is the **central nervous system** of the modern data platform.
 **Broker** — a Kafka server that stores and serves partitions
 
 > Kafka 4 ships a new **server-side consumer rebalance protocol (KIP-848)** that replaces stop-the-world rebalances with incremental, broker-coordinated reassignment. (Mechanics in Module 5.)
+
+---
+
+## If Kafka Were Named Today
+
+Kafka's vocabulary predates today's streaming and database conventions. If you come
+from other systems, this mental translation helps:
+
+- **Broker → Server** (or Node)
+- **Producer → Publisher** (or Writer)
+- **Consumer → Subscriber** (or Reader)
+- **Partition → Shard** (a horizontal slice — the same idea as a database shard)
+- **Topic → Stream** (or Channel)
+- **Offset → Cursor** (your position in the log)
+- **Consumer Group → Subscription** (or a worker pool sharing the load)
+
+> The names are historical, not technical destiny — the *concepts* are what matter. When a term feels odd, translate it to the modern word in your head.
 
 ---
 
@@ -199,6 +232,8 @@ Consumer Group A (reads all partitions):
 - Events across partitions are **not globally ordered**
 - Partition count = maximum consumer group parallelism
 
+![](../images/Gutenberg_Pickwick.jpeg)
+
 ---
 
 ## Kafka Connect Overview
@@ -241,6 +276,18 @@ KTable<String, Long> orderCounts = orders
     .count();
 orderCounts.toStream().to("order-counts");
 ```
+![](../images/Scala.png)
+
+---
+
+## A Short History of Scala
+
+- **Scala** — a JVM language fusing **object-oriented and functional** programming, created by **Martin Odersky** (EPFL, Switzerland), first released **2004**.
+- **Twitter put it on the map:** around **2009** Twitter moved core backend services off **Ruby on Rails** onto Scala to survive its own growth — the adoption that made Scala *the* hot JVM language for large-scale systems.
+- That wave shaped this ecosystem: **Kafka** (LinkedIn) and **Apache Spark** were both originally written in **Scala**.
+- Kafka has since moved much of its code — and all its newer clients and KRaft — to **Java**, but its roots are Scala.
+
+> Why it's here: Kafka was born in the Scala era (~2009–2013). The language cooled off, but the systems it produced — Kafka, Spark — became foundational.
 
 ---
 
