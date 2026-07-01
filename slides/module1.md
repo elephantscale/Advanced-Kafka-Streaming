@@ -30,6 +30,31 @@ Use cases that demand real-time streaming:
 
 ---
 
+## What Is Event-Driven Architecture?
+
+An **event** is an immutable record that *something happened* — a fact, stated in
+the past tense: `OrderPlaced`, `PaymentFailed`, `SensorRead = 72°F`.
+
+**Event-Driven Architecture (EDA):** services **produce and react to events**
+through a shared log, instead of calling each other directly.
+
+- **Request/response** — a service calls another and waits for the reply; tightly coupled
+- **Event-driven** — a producer emits an event; any number of consumers react on their own, asynchronously and independently
+
+```
+Producer ──"OrderPlaced"──▶ [ Kafka log ] ──┬──▶ Inventory
+                                            ├──▶ Shipping
+                                            └──▶ Analytics
+```
+
+Why it matters: **decoupling** (services evolve independently), **scalability**
+(add consumers freely), **resilience** (a down consumer blocks no one), and
+**replay** (the log is a durable record of what happened).
+
+> Kafka is the durable log in the middle — the backbone that makes EDA practical at scale.
+
+---
+
 ## What Is Apache Kafka?
 
 Kafka is a **distributed event streaming platform**.
