@@ -36,6 +36,24 @@ With Kafka Connect:
 
 ---
 
+## Kafka Connect, Intuitively — The USB Hub for Data
+
+Before Connect, wiring two systems together meant **hand-soldering a custom cable** every
+time: bespoke code to read Postgres, more to write S3 — each one reinventing offsets,
+retries, and restarts.
+
+Connect is the **USB hub**: a standard socket where you **plug in** a pre-built connector
+and it just works — 700+ of them.
+
+- **You configure, you don't code** — a connector is JSON, not a program.
+- **The hub handles the hard parts** — offset tracking, retries, scaling, restarts — once, for every connector.
+- **Source = plug data *in*; Sink = plug data *out*.**
+
+> The whole module is config, not code — and that's the point: the plumbing is already
+> solved. You declare *what* to move, not *how* to move it.
+
+---
+
 ## Kafka Connect Architecture
 
 ```
