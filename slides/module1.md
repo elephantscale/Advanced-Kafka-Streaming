@@ -285,6 +285,7 @@ metrics     ──────►   Sink Connector   ──►  ClickHouse
 
 700+ connectors available on Confluent Hub.
 
+![](../images/pexels-pixabay-275143.jpg)
 ---
 
 ## Kafka Streams Overview
@@ -378,6 +379,7 @@ Kafka integrates with the full data ecosystem:
 - **AI/ML Pipelines** — Feature stores, model serving, inference logging
 - **Cloud (AWS/GCP/Azure)** — MSK, Confluent Cloud, Event Hubs
 
+![](../images/spark.png)
 ---
 
 ## Streaming-First Application Design
