@@ -28,6 +28,23 @@ Elephant Scale
 
 ---
 
+## Fan-Out, Intuitively — The Mailroom
+
+One firehose of mail; ten desks, each wanting a different slice.
+
+- **Photocopy the whole paper for every desk** — dead simple, but 10× the paper and the
+  copier runs hot. *(= duplicate the topic per consumer.)*
+- **Sort and tag at the mailroom; each desk grabs only its pile** — a little upfront work,
+  huge savings downstream. *(= header / stream filtering.)*
+
+The whole module is one question: **where do you pay — storage (copies) or CPU
+(filtering) — and who pays it: the producer, the broker, or every consumer?**
+
+> At 10M msg/sec, "photocopy everything" isn't just wasteful — it's the difference between
+> 3 servers and 30.
+
+---
+
 ## Topic Design Options
 
 | Design | Storage | Network | Consumer CPU | Ops Complexity |
@@ -92,6 +109,22 @@ At 10M msg/sec with 33% of messages wanted per consumer:
 | Header skip, deserialize wanted | 3,300,000 | ~0.33× |
 
 > 3× CPU reduction per consumer — multiplied across 10 consumers = significant infrastructure savings.
+
+---
+
+## What 3× CPU Actually Saves
+
+The header-skip win isn't abstract — price it out at **10M msg/sec, 10 consumer teams**:
+
+- Full-deserialize in every consumer: say each needs **~20 cores** to keep up → **~200 cores**.
+- Header-skip (33% wanted): **~7 cores** each → **~70 cores**.
+- **~130 cores saved, continuously** — on cloud compute, a five- to six-figure annual line
+  item for a one-line header check.
+
+*(Core counts are illustrative — the point is the ratio, not the exact number.)*
+
+> At fan-out scale, a **metadata-level** decision (skip before deserialize) dwarfs any
+> micro-optimization *inside* the consumer. Filter early, filter cheap.
 
 ---
 

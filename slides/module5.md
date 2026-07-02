@@ -155,6 +155,21 @@ Zero-downtime: producers switch first, consumers drain, then switch.
 
 ---
 
+## Consumer Lag, Intuitively
+
+Lag is just the **checkout line** at a supermarket: messages arrive, consumers ring them
+up, and lag = the shoppers still waiting.
+
+- Lag **grows** whenever **arrival rate > processing rate** — the line backs up.
+- Two ways to shrink it: **process faster** (optimize, go async) or **add cashiers**
+  (more consumers) — but only up to the number of **lanes** (partitions).
+- Steady non-zero lag is fine. **Steadily *rising* lag** is the alarm.
+
+> That's why lag is *the* health metric: the earliest, clearest sign your consumers can't
+> keep up with your producers.
+
+---
+
 ## Consumer Lag — The Primary Health Metric
 
 ```
@@ -206,6 +221,27 @@ no JoinGroup/SyncGroup stop-the-world barrier).
 group.protocol=consumer        # opt in to the new protocol
 ```
 > The classic protocol still works; KIP-848 is the forward path. Lab 5 compares all three.
+
+---
+
+## When Rebalancing Goes Wrong — The Rebalance Storm
+
+A real production failure pattern:
+
+- A 30-consumer group processes payments. One pod hits a long GC pause and misses a
+  heartbeat → the group **rebalances** → under the eager protocol, **all 30 stop**.
+- The pause only *looked* like death; the pod rejoins → **another rebalance** → everyone
+  stops again.
+- Under load this loops: the group spends more time **rebalancing than processing**. Lag
+  explodes, latency spikes, on-call gets paged.
+
+The fix is exactly the config from the previous slide:
+- **Cooperative rebalancing** — only affected partitions move; the other 29 keep working.
+- **Static membership** (`group.instance.id`) — a brief restart no longer triggers a reassignment.
+- **KIP-848** — the broker drives incremental assignment; no stop-the-world barrier.
+
+> The "rebalance storm" is one of the most common Kafka production incidents. Recognizing
+> it — and knowing these three fixes — turns a 3-hour outage into a 5-minute triage.
 
 ---
 
