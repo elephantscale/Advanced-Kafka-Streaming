@@ -129,7 +129,7 @@ No external dependency!
 ```
 
 > **ZooKeeper was fully removed in Apache Kafka 4.0.** Every Kafka 4 cluster runs KRaft. ZooKeeper is shown here only so you recognize it in older deployments and migration projects.
-
+![](../images/zookeeper.png)
 ---
 
 ## KRaft Architecture
@@ -153,6 +153,11 @@ In KRaft mode, Kafka manages its own metadata:
 Benefits: faster failover, simpler operations, no ZooKeeper to manage.
 
 ---
+## Kraft
+![](../images/kraft.png)
+
+---
+
 
 ## Partition Assignment and Leader Election
 
@@ -217,7 +222,7 @@ Application
     ▼
 [Broker]  → acks back to producer
 ```
-
+![](../images/pexels-eudescs-27207183.jpg)
 ---
 
 ## Producer Configuration — Key Parameters
@@ -248,6 +253,22 @@ Broker deduplicates:
 ```
 
 Prevents duplicate writes on retry — essential for exactly-once.
+
+---
+
+## A Word About "Idempotent"
+
+It sounds like a medical diagnosis. It's actually the simplest idea in the room:
+
+**Doing it again changes nothing.**
+
+- Press the **elevator button** five times — the elevator does not arrive 5× faster. Same result. That's idempotent.
+- A **light switch already set to "on"** — flip it to "on" again… still on.
+- `abs(abs(x)) == abs(x)`. Multiplying by 1 all day.
+
+For Kafka: when a producer retries and sends the same record twice, an **idempotent** producer makes the broker shrug and keep **one** copy — the retry changed nothing.
+
+> Say "idempotent" in a meeting and everyone assumes you're the smartest person there. Now you actually are.
 
 ---
 
