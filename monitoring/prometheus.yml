@@ -1,0 +1,10 @@
+# Prometheus scrape config for the monitoring profile (Labs 3 & 7).
+# kafka-exporter exposes Kafka metrics — including kafka_consumergroup_lag,
+# which Lab 7's KEDA ScaledObject queries.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]

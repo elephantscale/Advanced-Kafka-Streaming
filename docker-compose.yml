@@ -107,6 +107,136 @@ services:
       kafka-3:
         condition: service_healthy
 
+  # =====================================================================
+  # OPTIONAL PROFILES — started on demand, NOT part of the core cluster.
+  #   docker compose --profile monitoring up -d   # Labs 3 & 7
+  #   docker compose --profile connect    up -d   # Lab 4
+  # FIRST CUT — validated as YAML but not yet brought up; verify on the VM.
+  # =====================================================================
+
+  # ---- monitoring profile (Labs 3 & 7): Prometheus + Grafana + kafka-exporter ----
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    profiles: ["monitoring"]
+    networks: [kafka]
+    command:
+      - "--kafka.server=kafka-1:9092"
+      - "--kafka.server=kafka-2:9092"
+      - "--kafka.server=kafka-3:9092"
+    ports:
+      - "9308:9308"   # Prometheus metrics, incl. kafka_consumergroup_lag (Lab 7 KEDA)
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    profiles: ["monitoring"]
+    networks: [kafka]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - kafka-exporter
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    profiles: ["monitoring"]
+    networks: [kafka]
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  # ---- connect profile (Lab 4): PostgreSQL + MinIO + Kafka Connect ----
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    profiles: ["connect"]
+    networks: [kafka]
+    environment:
+      POSTGRES_DB: "orders_db"
+      POSTGRES_USER: "kafka_user"
+      POSTGRES_PASSWORD: "kafka_pw"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./connect/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kafka_user -d orders_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    profiles: ["connect"]
+    networks: [kafka]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+
+  minio-setup:
+    image: minio/mc:latest
+    container_name: minio-setup
+    profiles: ["connect"]
+    networks: [kafka]
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 minioadmin minioadmin; do echo 'waiting for minio'; sleep 2; done; mc mb -p local/my-data-lake; echo 'bucket my-data-lake ready';"
+    restart: "no"
+
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.7.0
+    container_name: kafka-connect
+    profiles: ["connect"]
+    networks: [kafka]
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    ports:
+      - "8083:8083"   # Connect REST API
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
+      CONNECT_GROUP_ID: "connect-cluster"
+      CONNECT_CONFIG_STORAGE_TOPIC: "connect-configs"
+      CONNECT_OFFSET_STORAGE_TOPIC: "connect-offsets"
+      CONNECT_STATUS_STORAGE_TOPIC: "connect-status"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "3"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "3"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "3"
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
+    # First cut: install the JDBC + S3 connectors at startup (needs internet).
+    # For the golden image, bake these into a custom image so class-time startup
+    # is offline and fast.
+    command:
+      - bash
+      - -c
+      - |
+        confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:latest || true
+        confluent-hub install --no-prompt confluentinc/kafka-connect-s3:latest || true
+        exec /etc/confluent/docker/run
+
 networks:
   kafka:
     name: kafka
