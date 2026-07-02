@@ -31,6 +31,22 @@ Current trends:
 
 ---
 
+## Trends: Ready Now vs Emerging vs Horizon
+
+A trends module is only useful if you know **what to bet on today** vs what to just watch:
+
+- **Production-ready now** — MirrorMaker 2 federation · serverless (MSK Serverless,
+  Confluent Cloud) · **Share Groups** (KIP-932, early access but usable) · Kafka → Iceberg sinks.
+- **Emerging (pilot, not core yet)** — **diskless / object-store Kafka** (KIP-1150;
+  WarpStream, AutoMQ) · Flink-native lakehouse (Tableflow) · edge Kafka (Redpanda / Strimzi).
+- **Horizon (watch, don't build on)** — real-time AI agents · LLMs embedded in stream
+  processors · decentralized data mesh.
+
+> Rule of thumb: make architecture decisions on the "ready now" column; treat "horizon" as
+> informed peripheral vision, not a roadmap.
+
+---
+
 ## Multi-Cluster Federation
 
 ```
