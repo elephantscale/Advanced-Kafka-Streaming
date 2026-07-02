@@ -12,6 +12,7 @@ Elephant Scale
 - Operational procedures: topic management, consumer group management, security operations
 - Incident triage runbook
 
+![](../images/pexels-mikael-varosyan-2148687904-37457226.jpg)
 ---
 
 ## The Four Observability Signals
@@ -22,6 +23,7 @@ Elephant Scale
 4. **Saturation** — disk usage, network, CPU, consumer lag
 
 > If you can't measure it, you can't operate it.
+> 
 ![](../images/pexels-mikhail-nilov-8851544.jpg)
 
 ---
