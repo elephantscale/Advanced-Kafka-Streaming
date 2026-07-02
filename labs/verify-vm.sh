@@ -55,7 +55,7 @@ if command -v ss >/dev/null 2>&1; then
   if ss -ltn 2>/dev/null | grep -q ':8080 '; then wn "something is already listening on :8080 — Kafka UI won't bind"
   else ok ":8080 is free"; fi
 else wn "ss not available; check :8080 manually"; fi
-echo "  (note: inbound :8080 from the classroom must be opened in the VM's security group — not checkable from inside)"
+echo "  (Kafka UI is opened from the VM's own desktop via the Guacamole gateway, so :8080 does NOT need external exposure)"
 
 hdr "Lab images (golden image should have these pre-pulled)"
 for img in apache/kafka:4.0.0 ghcr.io/kafbat/kafka-ui:latest; do
