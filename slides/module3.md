@@ -22,6 +22,7 @@ Elephant Scale
 4. **Saturation** — disk usage, network, CPU, consumer lag
 
 > If you can't measure it, you can't operate it.
+![](../images/pexels-mikhail-nilov-8851544.jpg)
 
 ---
 
@@ -57,6 +58,8 @@ Alertmanager → PagerDuty / Slack / Email
 | Bytes in/out per sec | > 80% NIC capacity |
 | ISR shrink rate | any non-zero sustained rate |
 
+![](../images/pexels-kerimeveyik-28782186.jpg)
+
 ---
 
 ## Critical Consumer Metrics
@@ -87,6 +90,7 @@ Alertmanager → PagerDuty / Slack / Email
 
 > This course's lab environment uses **Prometheus + Grafana + Kafka UI**. Control Center
 > is listed for awareness; it is a paid Confluent product and not required here.
+![](../images/pexels-alphatradezone-5833752.jpg)
 
 ---
 
@@ -105,6 +109,7 @@ Alertmanager → PagerDuty / Slack / Email
 
 **Tier 3 — Track in dashboard:**
 - Compression ratios, batch sizes, rebalance frequency
+![](../images/prometheus.png)
 
 ---
 
@@ -201,6 +206,7 @@ kafka-topics.sh --bootstrap-server kafka:9092 \
 # Check follower broker logs
 grep "ReplicaFetcherThread" /var/log/kafka/server.log
 ```
+![](../images/pexels-olgalioncat-7245320.jpg)
 
 ---
 
@@ -234,6 +240,7 @@ kafka-configs.sh --bootstrap-server kafka:9092 \
 kafka-log-dirs.sh --bootstrap-server kafka:9092 \
   --topic-list orders,payments --describe | grep "size"
 ```
+![](../images/pexels-steve-31023737.jpg)
 
 ---
 
