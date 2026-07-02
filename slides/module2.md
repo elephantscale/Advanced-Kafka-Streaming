@@ -47,6 +47,7 @@ Key properties:
 - Log is **append-only** — writes are sequential (fast)
 - Segments are **immutable** once closed
 - Older segments are deleted or compacted based on retention policy
+![Log Segments](../images/pexels-sasa-46443328-31487257.jpg)
 
 ---
 
@@ -67,6 +68,24 @@ Offset 200 → byte 8192
 ```
 
 These enable O(log n) seeks without scanning the full log.
+
+---
+
+## What O(log n) Means — a Big-O Aside
+
+Big-O describes **how work grows as the data grows** (n = number of records). It's
+the *shape* of the cost, not an exact time.
+
+- **O(1) — constant:** same cost at any size. *Appending* to the log; a hash lookup.
+- **O(log n) — logarithmic:** grows very slowly — **double the data, add one step**. Binary search over Kafka's *sorted offset index*.
+- **O(n) — linear:** grows in step with the data. *Scanning* a whole segment.
+- **O(n²) — quadratic:** blows up fast; avoid on big data (nested loops).
+
+To find one offset in a **1-billion-record** partition:
+- **No index → O(n):** up to ~1,000,000,000 steps (a scan).
+- **Sorted index → O(log n):** ~30 steps.
+
+> That's the whole point of the `.index` file: turn a linear scan into a logarithmic seek, while appends stay O(1). This is why Kafka stays fast at massive scale.
 
 ---
 
