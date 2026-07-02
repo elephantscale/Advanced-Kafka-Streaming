@@ -200,6 +200,32 @@ Key configs:
 
 ---
 
+## Lab 2 · Part 1 — Storage & Cluster Internals
+
+**Stop here and run Part 1 now — Exercises 1, 2, 5, 6.** You'll see the storage and
+cluster mechanisms from these slides as real bytes and live state.
+
+1. Dump raw **log segment** files on disk — `.log` / `.index` / `.timeindex` *(Ex 1)*
+2. Read the **`__consumer_offsets`** topic — where consumer positions live *(Ex 2)*
+3. Watch the **ISR shrink** on broker failure, and see **ELR** (KIP-966) *(Ex 5)*
+4. Examine the **KRaft metadata log** *(Ex 6)*
+
+*Exercises 3–4 (transactions & idempotence) come after the next few slides — Part 2.*
+
+Environment: same 3-broker KRaft cluster from Lab 1 · ~40 minutes
+
+---
+
+## Welcome Back — The Write Path & Exactly-Once
+
+You've inspected the storage and cluster layer as real bytes: log segments,
+`__consumer_offsets`, ISR/ELR, the KRaft log.
+
+Now the **producer write path** — batching, delivery, idempotence — and how transactions
+give **exactly-once**. You'll finish the lab (**Part 2, Exercises 3–4**) right after these.
+
+---
+
 ## Producer Internals
 
 The Kafka producer is a sophisticated client:
@@ -355,7 +381,7 @@ Application
 Config: `transactional.id=unique-producer-id`, `isolation.level=read_committed`
 
 > **Kafka 4 hardening (KIP-890):** the transaction protocol was reworked to close long-standing correctness gaps (notably "hanging transactions"), adding per-transaction epoch verification between client and broker. Existing transactional code keeps working — it just gets stronger guarantees.
-
+![](../images/exactlyone.png)
 ---
 
 ## The `__consumer_offsets` Topic
@@ -400,6 +426,18 @@ Used by the broker to:
 
 ---
 
+## Lab 2 · Part 2 — Producer & Transaction Internals
+
+**Now finish the lab — Exercises 3, 4.** Apply the write-path slides you just saw.
+
+1. Run a **transactional producer**; consume with `read_committed` vs `read_uncommitted` *(Ex 3)*
+2. Trace the commit through **`__transaction_state`** *(Ex 3.3)*
+3. Verify **idempotent dedup** — read `producerId` + `baseSequence` off disk *(Ex 4)*
+
+Environment: same cluster · ~25 minutes
+
+---
+
 ## Module 2 Summary
 
 - Kafka stores data as append-only log segments with offset and time indexes
@@ -420,21 +458,6 @@ Used by the broker to:
 - Monitoring stack: Prometheus, Grafana, Kafka UI
 - Operational procedures: retention, offset resets, security ops
 - Incident triage runbooks and alerting
-
----
-
-## Lab Preview — Lab 2
-
-**Examine Internal Kafka Topics**
-
-You will:
-1. Inspect `__consumer_offsets` and `__transaction_state`
-2. Trace a transactional producer's commit sequence
-3. Observe ISR changes during a simulated broker failure
-4. Examine log segment files on disk and the KRaft metadata log
-
-Environment: KRaft Kafka 4 cluster (Docker Compose)
-Time: ~60 minutes
 
 ---
 
