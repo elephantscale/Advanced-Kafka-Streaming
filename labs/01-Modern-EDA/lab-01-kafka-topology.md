@@ -227,6 +227,8 @@ docker exec kafka-1 kafka-console-consumer.sh \
 
 ### 4.2 Describe the consumer group
 
+Leave the two consumers running in terminals 1 and 2. Open a **third terminal** for this command:
+
 ```bash
 docker exec kafka-1 kafka-consumer-groups.sh \
   --bootstrap-server localhost:9092 \
@@ -247,6 +249,10 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 >   --bootstrap-server localhost:9092 \
 >   --describe --group payment-service --state
 > ```
+
+> **Before moving on:** stop the two consumers (Ctrl+C) and close terminals 1 and 2.
+> They are no longer needed — and leaving them running will consume the events you
+> produce in Exercise 5, muddying the retention test.
 
 ---
 
@@ -430,6 +436,8 @@ docker exec kafka-1 kafka-console-share-consumer.sh \
 
 ### 8.2 Produce work and watch distribution
 
+Leave both share consumers running. Open a **third terminal** and produce 20 jobs — watch how they spread across the two consumers:
+
 ```bash
 for i in $(seq 1 20); do
   echo "job-$i:{\"job\":$i}" | docker exec -i kafka-1 kafka-console-producer.sh \
@@ -440,6 +448,8 @@ done
 ```
 
 ### 8.3 Inspect the share group
+
+In the third terminal (the produce loop has finished), inspect the share group:
 
 ```bash
 docker exec kafka-1 kafka-share-groups.sh \
@@ -455,6 +465,9 @@ docker exec kafka-1 kafka-share-groups.sh \
    (unlike a classic consumer group)?
 3. Name one workload where queue semantics (share group) fit better than a
    consumer group, and one where the reverse is true.
+
+> **Done with the hands-on section.** Stop any running consumers (Ctrl+C) and close all
+> terminals. (The Challenge below is an optional Python exercise.)
 
 ---
 
