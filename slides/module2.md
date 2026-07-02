@@ -130,6 +130,7 @@ No external dependency!
 
 > **ZooKeeper was fully removed in Apache Kafka 4.0.** Every Kafka 4 cluster runs KRaft. ZooKeeper is shown here only so you recognize it in older deployments and migration projects.
 ![](../images/zookeeper.png)
+
 ---
 
 ## KRaft Architecture
@@ -249,6 +250,7 @@ Application
 [Broker]  → acks back to producer
 ```
 ![](../images/pexels-eudescs-27207183.jpg)
+
 ---
 
 ## Producer Configuration — Key Parameters
@@ -382,6 +384,7 @@ Config: `transactional.id=unique-producer-id`, `isolation.level=read_committed`
 
 > **Kafka 4 hardening (KIP-890):** the transaction protocol was reworked to close long-standing correctness gaps (notably "hanging transactions"), adding per-transaction epoch verification between client and broker. Existing transactional code keeps working — it just gets stronger guarantees.
 ![](../images/exactlyone.png)
+
 ---
 
 ## The `__consumer_offsets` Topic
