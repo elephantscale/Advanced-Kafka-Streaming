@@ -24,7 +24,8 @@ command -v curl >/dev/null 2>&1 && itype=$(TOKEN=$(curl -s -m2 -X PUT "http://16
 hdr "RAM"
 mem_gb=$(awk '/MemTotal/{printf "%.1f", $2/1024/1024}' /proc/meminfo)
 mem_i=${mem_gb%.*}
-if [ "$mem_i" -ge 16 ]; then ok "RAM: ${mem_gb} GB (>=16)"
+# 16 GB VMs report ~15.4 GiB usable after kernel/firmware reservation, so treat >=15 as the 16 GB class.
+if [ "$mem_i" -ge 15 ]; then ok "RAM: ${mem_gb} GB (16 GB class)"
 elif [ "$mem_i" -ge 8 ]; then wn "RAM: ${mem_gb} GB (floor 8; recommended 16 — capstone/monitoring may swap)"
 else bad "RAM: ${mem_gb} GB (<8 — will OOM under the 3-broker cluster)"; fi
 
