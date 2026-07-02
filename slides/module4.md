@@ -170,6 +170,25 @@ connect.errors.offset = 42
 
 ---
 
+## When One Bad Record Stops Everything — Why the DLQ Exists
+
+A real failure: a single **malformed record** hits a sink connector — one row with a
+string where a number belongs.
+
+- Default behavior (`errors.tolerance=none`): the task **throws and stops**. The whole
+  connector halts on record #1 of a million.
+- At 3am your pipeline is dark, lag is climbing, and one corrupt row is the cause.
+
+The fix is the config on the previous slide:
+- `errors.tolerance=all` — **don't die on a bad record.**
+- `errors.deadletterqueue.topic.name` — **route the poison record aside** (with headers
+  saying *why*) and keep processing the other 999,999.
+
+> A "poison message" halting a pipeline is one of the most common Connect incidents. The
+> DLQ turns a 3am outage into a topic you review the next morning.
+
+---
+
 ## Retry Configuration
 
 ```json
@@ -183,6 +202,32 @@ connect.errors.offset = 42
 
 - **Transient failures** (network timeouts, unavailability) → retry with exponential backoff
 - **Persistent failures** (schema mismatch, corrupt records) → send to DLQ immediately
+
+---
+
+## Lab 4 — Deploy & Tune Connectors
+
+**Stop here and run the lab now.** Put the Connect config from these slides to work on a
+live pipeline.
+
+1. Deploy a **JDBC source** connector reading from PostgreSQL
+2. Deploy an **S3/MinIO sink** writing time-partitioned files
+3. Inject a **bad record** and watch it land in the **Dead Letter Queue**
+4. **Pause, insert rows, resume** — verify offset tracking (no loss, no dupes)
+5. Discuss **task-scaling** limits: JDBC vs file connectors
+
+Environment: Docker Compose (Kafka, PostgreSQL, MinIO, Kafka Connect) · **60–75 minutes**
+
+---
+
+## Welcome Back — Kafka in the Wider Pipeline
+
+You've deployed real source and sink connectors, survived a poison record via the DLQ, and
+watched offsets resume cleanly.
+
+Now zoom out: how Kafka hands off to **Flink and Spark**, feeds the **lakehouse**
+(Iceberg / Tableflow), and the **enterprise patterns** (outbox, saga) that wire it into a
+business.
 
 ---
 
@@ -302,22 +347,6 @@ OrderPlaced → PaymentRequested → PaymentCompleted → OrderFulfilled
 - Capacity planning and right-sizing
 - Expanding Kafka with no data loss
 - HA and performance tuning: replication, acks, consumer lag monitoring
-
----
-
-## Lab Preview — Lab 4
-
-**Deploy and Tune Source and Sink Connectors**
-
-You will:
-1. Deploy a JDBC source connector reading from PostgreSQL
-2. Deploy an S3/MinIO sink connector writing time-partitioned files
-3. Inject bad records and observe Dead Letter Queue behavior
-4. Pause, insert rows, resume — verify offset tracking
-5. Discuss task scaling limits for JDBC vs file connectors
-
-Environment: Docker Compose (Kafka, PostgreSQL, MinIO, Kafka Connect)
-Time: 60–75 minutes
 
 ---
 
