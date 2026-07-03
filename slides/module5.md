@@ -14,7 +14,7 @@ Elephant Scale
 - Cooperative rebalancing
 - Broker failure, failover, and ISR recovery
 - Capacity planning formula
-
+![](../images/pexels-foadshariyati-32085173.jpg)
 ---
 
 ## What Limits Kafka Throughput?
@@ -106,7 +106,7 @@ fetch.max.bytes=52428800
 | snappy | Good | Low | Balanced |
 
 Enable end-to-end: compress at producer, decompress only at consumer.
-
+![](../images/compression.png)
 ---
 
 ## Expanding Kafka with No Data Loss
@@ -152,7 +152,7 @@ Old Cluster ──MirrorMaker2──► New Cluster
 ```
 
 Zero-downtime: producers switch first, consumers drain, then switch.
-
+![](../images/pexels-diva-32862442.jpg)
 ---
 
 ## Consumer Lag, Intuitively
@@ -187,7 +187,7 @@ Root cause vs fix:
 | Too few consumers | Add instances (up to partition count) |
 | Rebalance storm | Switch to cooperative rebalancing |
 | Message errors | DLQ handling, avoid retry loops |
-
+![](../images/pexels-polina-zimmerman-4108109.jpg)
 ---
 
 ## Rebalancing — The Throughput Killer
@@ -210,7 +210,7 @@ Config:
 partition.assignment.strategy=CooperativeStickyAssignor
 group.instance.id=payment-service-instance-1   # static membership
 ```
-
+![](../images/pexels-maxou-20033136.jpg )
 **New consumer protocol — KIP-848 (GA in Kafka 4):**
 ```
 The BROKER computes and drives the assignment (no client-side leader,
@@ -242,7 +242,7 @@ The fix is exactly the config from the previous slide:
 
 > The "rebalance storm" is one of the most common Kafka production incidents. Recognizing
 > it — and knowing these three fixes — turns a 3-hour outage into a 5-minute triage.
-
+![](../images/pexels-cameron-readius-2648348-8040612.jpg)
 ---
 
 ## Broker Failure and ISR Recovery
