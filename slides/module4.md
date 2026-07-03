@@ -34,6 +34,8 @@ With Kafka Connect:
 - Horizontal scaling via connector tasks
 - Schema Registry integration
 
+![](../images/700.png)
+
 ---
 
 ## Kafka Connect, Intuitively — The USB Hub for Data
@@ -51,7 +53,7 @@ and it just works — 700+ of them.
 
 > The whole module is config, not code — and that's the point: the plumbing is already
 > solved. You declare *what* to move, not *how* to move it.
-
+![](/images/pexels-jessbaileydesign-6081231.jpg)
 ---
 
 ## Kafka Connect Architecture
@@ -106,7 +108,7 @@ Benefits:
   }
 }
 ```
-
+![](../images/pexels-cookiecutter-1148820.jpg)
 ---
 
 ## Sink Connector — S3 Example
@@ -186,7 +188,7 @@ The fix is the config on the previous slide:
 
 > A "poison message" halting a pipeline is one of the most common Connect incidents. The
 > DLQ turns a 3am outage into a topic you review the next morning.
-
+![](../images/pexels-leandroph-35202436.jpg)
 ---
 
 ## Retry Configuration
