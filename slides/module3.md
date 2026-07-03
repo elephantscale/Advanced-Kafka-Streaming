@@ -13,6 +13,7 @@ Elephant Scale
 - Incident triage runbook
 
 ![](../images/pexels-mikael-varosyan-2148687904-37457226.jpg)
+
 ---
 
 ## Observability, Intuitively — Gauges, Not an Autopsy
