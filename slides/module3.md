@@ -15,6 +15,23 @@ Elephant Scale
 ![](../images/pexels-mikael-varosyan-2148687904-37457226.jpg)
 ---
 
+## Observability, Intuitively — Gauges, Not an Autopsy
+
+Operating Kafka is like driving: you don't pop the hood at 70 mph — you watch the
+**dashboard** and act when a gauge goes red.
+
+- **Good observability** = you catch trouble on a gauge *before* it becomes an outage.
+- **Bad observability** = an *autopsy* after the crash, reading logs to guess what happened.
+
+The four signals on the next slide — **latency, traffic, errors, saturation** — are
+Kafka's dashboard gauges. The rest of this module is: which gauges, where the red line is,
+and what to do when one lights up.
+
+> These are Google SRE's "golden signals." If you watch only four things on a Kafka
+> cluster, watch these four.
+
+---
+
 ## The Four Observability Signals
 
 1. **Latency** — end-to-end produce/consume latency
@@ -191,6 +208,23 @@ Apply this 6-step process to every production incident:
 4. **Consumer impact** — is lag growing or stable?
 5. **Mitigation** — one safe, reversible action
 6. **Recovery** — verify the signal clears
+
+---
+
+## A 3am Page — The Runbook in Action
+
+**02:47** — PagerDuty fires: `UnderReplicatedPartitions = 240` on the orders cluster.
+Walking the six steps:
+
+1. **Scope** — `--describe --under-replicated-partitions`: all 240 are replicas led by **broker 3**.
+2. **Control plane** — `ActiveControllerCount = 1`. The cluster's brain is fine.
+3. **Durability** — ISR shrank 3 → 2, still at `min.insync.replicas=2`, so **writes still succeed**. Not yet a data-loss risk.
+4. **Consumer impact** — lag is flat. Customers don't feel it *yet*.
+5. **Mitigation** — broker 3's disk is 94% full. One safe, reversible action: drop retention on the `clickstream` topic to free space.
+6. **Recovery** — disk falls to 70%, broker 3 catches up, ISR returns to 3, URP → 0.
+
+> At 3am, tired, you don't improvise — you **walk the steps**. The runbook turns panic
+> into a checklist. Same six steps, every incident.
 
 ---
 
