@@ -51,22 +51,14 @@ docker compose ps
 ### 1.1 Create topics
 
 ```bash
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic edge.telemetry.raw 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic edge.telemetry.raw \
+  --create --if-not-exists --topic edge.telemetry.raw \
   --partitions 3 --replication-factor 3
 
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic core.telemetry.filtered 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic core.telemetry.filtered \
+  --create --if-not-exists --topic core.telemetry.filtered \
   --partitions 6 --replication-factor 3
 ```
 
@@ -139,13 +131,9 @@ print(f'Forwarded {forwarded} high-priority events')
 ## Exercise 2 — Streaming Feature Enrichment
 
 ```bash
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic core.telemetry.features 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic core.telemetry.features \
+  --create --if-not-exists --topic core.telemetry.features \
   --partitions 6 --replication-factor 3
 ```
 
@@ -232,13 +220,9 @@ python mock_model.py &
 ### 3.2 Deploy a streaming inference pipeline
 
 ```bash
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic core.telemetry.predictions 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic core.telemetry.predictions \
+  --create --if-not-exists --topic core.telemetry.predictions \
   --partitions 6 --replication-factor 3
 ```
 
@@ -287,13 +271,9 @@ print(f'Processed {n} events, {alerts} alerts raised')
 ## Exercise 4 — Queue-Style Worker Pattern
 
 ```bash
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic core.jobs 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic core.jobs \
+  --create --if-not-exists --topic core.jobs \
   --partitions 6 --replication-factor 3
 
 # Publish 60 jobs

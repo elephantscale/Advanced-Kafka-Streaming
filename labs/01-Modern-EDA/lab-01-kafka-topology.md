@@ -94,13 +94,9 @@ docker exec kafka-1 kafka-metadata-quorum.sh \
 ### 2.1 Create a basic topic
 
 ```bash
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic orders 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create \
+  --create --if-not-exists \
   --topic orders \
   --partitions 6 \
   --replication-factor 3
@@ -133,26 +129,18 @@ Topic: orders  Partitions: 6  ReplicationFactor: 3
 
 ```bash
 # High-throughput topic (many partitions)
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic clickstream 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic clickstream \
+  --create --if-not-exists --topic clickstream \
   --partitions 24 --replication-factor 3
 
 # Compacted topic (for state).
 # ONE partition so every key shares it, and a tiny segment.bytes so segments roll
 # by SIZE as records arrive — compaction only cleans CLOSED segments, and size-based
 # rolling makes that happen reliably in the lab window (no timing guesswork).
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic user-profiles 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic user-profiles \
+  --create --if-not-exists --topic user-profiles \
   --partitions 1 --replication-factor 3 \
   --config cleanup.policy=compact \
   --config min.cleanable.dirty.ratio=0.01 \
@@ -161,13 +149,9 @@ docker exec kafka-1 kafka-topics.sh \
   --config delete.retention.ms=100
 
 # Short retention (for transient data)
-# start clean (safe on a fresh cluster)
-docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
-  --delete --topic temp-events 2>/dev/null || true
-sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
-  --create --topic temp-events \
+  --create --if-not-exists --topic temp-events \
   --partitions 3 --replication-factor 3 \
   --config retention.ms=3600000  # 1 hour
 ```
