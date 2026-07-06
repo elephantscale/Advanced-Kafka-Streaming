@@ -134,16 +134,17 @@ docker exec kafka-1 kafka-topics.sh \
   --create --topic clickstream \
   --partitions 24 --replication-factor 3
 
-# Compacted topic (for state)
-# segment.ms + low dirty ratio force compaction to actually run quickly
-# in the lab window (by default it would only act on rolled, non-active segments).
+# Compacted topic (for state).
+# ONE partition so every key shares it, and a tiny segment.bytes so segments roll
+# by SIZE as records arrive — compaction only cleans CLOSED segments, and size-based
+# rolling makes that happen reliably in the lab window (no timing guesswork).
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic user-profiles \
-  --partitions 6 --replication-factor 3 \
+  --partitions 1 --replication-factor 3 \
   --config cleanup.policy=compact \
   --config min.cleanable.dirty.ratio=0.01 \
-  --config segment.ms=10000 \
+  --config segment.bytes=512 \
   --config min.compaction.lag.ms=0 \
   --config delete.retention.ms=100
 
@@ -311,24 +312,24 @@ for v in 2 3 4; do
     --property key.separator=: --property parse.key=true
 done
 
-# Compaction only acts on a CLOSED (rolled) segment, not the active one — and the
-# segment won't roll until (a) segment.ms has elapsed AND (b) a new record arrives
-# to trigger it. All the updates above landed in ~1 second, so nothing has rolled yet.
-# Wait past segment.ms (10s), then append one more record to FORCE the roll:
-echo "Waiting 12s for segment.ms to elapse..."
-sleep 12
-echo "trigger-roll:{\"note\":\"forces the segment to roll so the cleaner can run\"}" \
-  | docker exec -i kafka-1 kafka-console-producer.sh \
+# Compaction only cleans CLOSED segments, never the active one. Produce some filler
+# records to the SAME (single) partition — each one pushes the log past segment.bytes
+# and rolls a new segment, so the segment holding the user-1 updates closes and becomes
+# compactable.
+for n in 1 2 3 4 5 6 7 8; do
+  echo "filler-$n:{\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}" | docker exec -i kafka-1 \
+    kafka-console-producer.sh \
     --bootstrap-server localhost:9092 \
     --topic user-profiles \
     --property key.separator=: --property parse.key=true
+done
 
-# Now the updates sit in a CLOSED segment. Give the log cleaner a pass to compact it.
-echo "Waiting 45s for the log cleaner to compact..."
-sleep 45
+# Give the log cleaner a pass to compact the closed segments.
+echo "Waiting 60s for the log cleaner to compact..."
+sleep 60
 
-# After compaction, only the latest value for user-1 should remain
-# (you'll also see the 'trigger-roll' key — that's expected, it's a different key).
+# After compaction, only the LATEST value for user-1 (v4) should remain
+# (user-2, user-3 and the filler-* keys each appear once too — that's expected).
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic user-profiles \
