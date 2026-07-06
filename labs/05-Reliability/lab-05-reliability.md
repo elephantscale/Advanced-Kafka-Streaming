@@ -43,6 +43,10 @@ docker compose up -d
 docker compose ps
 
 # Create benchmark topic with adequate parallelism
+# start clean (safe on a fresh cluster)
+docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
+  --delete --topic perf-test 2>/dev/null || true
+sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic perf-test \

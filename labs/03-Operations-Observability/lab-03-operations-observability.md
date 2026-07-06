@@ -85,6 +85,10 @@ curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_un
 ### 2.1 Create a test topic and produce load
 
 ```bash
+# start clean (safe on a fresh cluster)
+docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
+  --delete --topic obs.lag.demo 2>/dev/null || true
+sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic obs.lag.demo \

@@ -61,6 +61,10 @@ docker compose ps
 
 ```bash
 # Single broad topic (all data)
+# start clean (safe on a fresh cluster)
+docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
+  --delete --topic fanout.telemetry.all 2>/dev/null || true
+sleep 2
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --topic fanout.telemetry.all \
@@ -68,6 +72,10 @@ docker exec kafka-1 kafka-topics.sh \
 
 # Pre-filtered sub-topics (server-side split)
 for region in emea apac amer; do
+  # start clean (safe on a fresh cluster)
+  docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 \
+    --delete --topic fanout.telemetry.$region 2>/dev/null || true
+  sleep 2
   docker exec kafka-1 kafka-topics.sh \
     --bootstrap-server localhost:9092 \
     --create --topic fanout.telemetry.$region \
