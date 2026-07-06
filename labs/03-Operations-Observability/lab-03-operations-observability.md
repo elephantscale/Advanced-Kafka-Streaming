@@ -128,6 +128,8 @@ except KeyboardInterrupt:
 ```
 
 ```bash
+# Runs in the background (&) so it keeps consuming slowly while you observe lag.
+# You'll stop it in Exercise 3.2 with: pkill -INT -f slow_consumer.py
 python slow_consumer.py &
 ```
 
@@ -176,8 +178,12 @@ docker exec kafka-1 kafka-configs.sh \
 ### 3.2 Reset consumer group offset
 
 ```bash
-# Stop the consumer first, then reset
-kill %1
+# Stop the slow consumer first — offset reset requires the group to be INACTIVE
+# (Kafka refuses to reset a live group). pkill works from ANY terminal; the old
+# 'kill %1' only works if the consumer is a background job in this same shell.
+# -INT sends Ctrl+C so the script's handler closes the consumer and leaves the group cleanly.
+pkill -INT -f slow_consumer.py
+sleep 5   # give the group a moment to become empty
 
 # Reset to earliest
 docker exec kafka-1 kafka-consumer-groups.sh \
