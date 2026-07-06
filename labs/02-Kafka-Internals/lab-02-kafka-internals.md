@@ -54,6 +54,13 @@ alias k1='docker exec kafka-1'
 ### 1.1 Create a test topic and produce events
 
 ```bash
+# Start clean: remove the topic if a previous run left it behind
+# (guarantees the correct partitions/replication below, and avoids
+# "Topic already exists"). Harmless on a fresh cluster.
+k1 kafka-topics.sh --bootstrap-server localhost:9092 \
+  --delete --topic internals-test 2>/dev/null || true
+sleep 2
+
 k1 kafka-topics.sh --bootstrap-server localhost:9092 \
   --create --topic internals-test \
   --partitions 1 --replication-factor 3
