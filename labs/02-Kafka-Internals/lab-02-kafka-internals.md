@@ -56,7 +56,7 @@ alias k1='docker exec kafka-1'
 ```bash
 k1 kafka-topics.sh --bootstrap-server localhost:9092 \
   --create --topic internals-test \
-  --partitions 1 --replication-factor 1
+  --partitions 1 --replication-factor 3
 
 # Produce 50 events
 for i in $(seq 1 50); do
@@ -70,9 +70,22 @@ done | k1 kafka-console-producer.sh \
 
 ### 1.2 Inspect log files on disk
 
+The broker's data directory in this lab is `/tmp/kafka-logs` (the `apache/kafka`
+image default). Because `internals-test` is replicated to all three brokers, the
+partition dir exists on every broker — so `kafka-1` works below.
+
+> **If the path ever differs** (a different image or `KAFKA_LOG_DIRS` override), ask
+> Kafka where it put the partition:
+> ```bash
+> docker exec kafka-1 kafka-log-dirs.sh --bootstrap-server localhost:9092 \
+>   --topic-list internals-test --describe
+> ```
+> The `logDir` field is the base directory; the broker whose `partitions` list is
+> non-empty holds a replica.
+
 ```bash
-# Find the log directory
-docker exec kafka-1 ls -la /var/lib/kafka/data/internals-test-0/
+# List the partition's on-disk files
+docker exec kafka-1 ls -la /tmp/kafka-logs/internals-test-0/
 ```
 
 Expected files:
@@ -87,7 +100,7 @@ leader-epoch-checkpoint
 
 ```bash
 docker exec kafka-1 kafka-dump-log.sh \
-  --files /var/lib/kafka/data/internals-test-0/00000000000000000000.log \
+  --files /tmp/kafka-logs/internals-test-0/00000000000000000000.log \
   --print-data-log \
   | head -40
 ```
@@ -309,7 +322,7 @@ to see the `producerId`, `producerEpoch`, and `baseSequence` Kafka uses to dedup
 
 ```bash
 k1 kafka-dump-log.sh \
-  --files /var/lib/kafka/data/internals-test-0/00000000000000000000.log \
+  --files /tmp/kafka-logs/internals-test-0/00000000000000000000.log \
   --print-data-log \
   | grep -E 'producerId|baseSequence' | tail -5
 ```
@@ -430,7 +443,7 @@ docker exec kafka-1 kafka-metadata-quorum.sh \
 ```bash
 # Dump the metadata log
 docker exec kafka-1 kafka-metadata-shell.sh \
-  --snapshot /var/lib/kafka/data/__cluster_metadata-0/00000000000000000000.checkpoint
+  --snapshot /tmp/kafka-logs/__cluster_metadata-0/00000000000000000000.checkpoint
 ```
 
 **Questions:**
