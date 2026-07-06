@@ -311,13 +311,24 @@ for v in 2 3 4; do
     --property key.separator=: --property parse.key=true
 done
 
-# Compaction only acts on a CLOSED (rolled) segment, not the active one.
-# segment.ms=10000 rolls the segment after ~10s; the log cleaner then runs.
-# Wait for the roll + a cleaner pass before reading back.
-echo "Waiting ~30s for segment roll and log compaction..."
-sleep 30
+# Compaction only acts on a CLOSED (rolled) segment, not the active one — and the
+# segment won't roll until (a) segment.ms has elapsed AND (b) a new record arrives
+# to trigger it. All the updates above landed in ~1 second, so nothing has rolled yet.
+# Wait past segment.ms (10s), then append one more record to FORCE the roll:
+echo "Waiting 12s for segment.ms to elapse..."
+sleep 12
+echo "trigger-roll:{\"note\":\"forces the segment to roll so the cleaner can run\"}" \
+  | docker exec -i kafka-1 kafka-console-producer.sh \
+    --bootstrap-server localhost:9092 \
+    --topic user-profiles \
+    --property key.separator=: --property parse.key=true
+
+# Now the updates sit in a CLOSED segment. Give the log cleaner a pass to compact it.
+echo "Waiting 45s for the log cleaner to compact..."
+sleep 45
 
 # After compaction, only the latest value for user-1 should remain
+# (you'll also see the 'trigger-roll' key — that's expected, it's a different key).
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic user-profiles \
@@ -325,6 +336,11 @@ docker exec kafka-1 kafka-console-consumer.sh \
   --timeout-ms 10000 \
   --property print.key=true
 ```
+
+> **If you still see all versions of `user-1`:** compaction is a background process —
+> wait another 30–60s and re-run the consumer. Confirm the topic config with
+> `kafka-configs.sh --describe --entity-type topics --entity-name user-profiles`
+> (it must show `cleanup.policy=compact`).
 
 **Questions:**
 
