@@ -293,6 +293,8 @@ docker exec kafka-1 kafka-configs.sh \
 
 ### 5.3 Observe compaction on user-profiles
 
+<!-- Verified working on Kafka 4.0: after this runs, user-1 shows only v4. -->
+
 ```bash
 # Produce state updates for 3 users
 for i in 1 2 3; do
