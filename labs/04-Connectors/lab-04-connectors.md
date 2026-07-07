@@ -47,6 +47,20 @@ curl http://localhost:8083/connectors           # Kafka Connect REST API
 curl http://localhost:9000/minio/health/live    # MinIO health check
 ```
 
+> **First boot takes a few minutes.** On the very first `up`, the `kafka-connect`
+> container downloads the JDBC and S3 connector plugins from Confluent Hub before
+> the REST API on `:8083` comes up — so the `curl http://localhost:8083/connectors`
+> above will fail with "connection refused" until it finishes. Wait until it
+> returns `[]`, then continue:
+>
+> ```bash
+> until curl -sf http://localhost:8083/connector-plugins >/dev/null; do sleep 5; done
+> echo "Kafka Connect is ready."
+> ```
+>
+> This lab requires `jq` and `curl` on the host (see Prerequisites). On macOS:
+> `brew install jq`.
+
 ---
 
 ## Exercise 1 — Prepare Source Data (PostgreSQL)
@@ -64,8 +78,8 @@ CREATE TABLE orders (
     customer_id  VARCHAR(50) NOT NULL,
     amount       DECIMAL(10,2) NOT NULL,
     status       VARCHAR(20) DEFAULT 'PENDING',
-    created_at   TIMESTAMP DEFAULT NOW(),
-    updated_at   TIMESTAMP DEFAULT NOW()
+    created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_orders_updated_at ON orders(updated_at);
@@ -97,11 +111,12 @@ curl -X POST http://localhost:8083/connectors \
       "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
       "connection.url": "jdbc:postgresql://postgres:5432/orders_db",
       "connection.user": "kafka_user",
-      "connection.password": "kafka_password",
+      "connection.password": "kafka_pw",
       "table.whitelist": "orders",
       "mode": "timestamp+incrementing",
       "timestamp.column.name": "updated_at",
       "incrementing.column.name": "id",
+      "numeric.mapping": "best_fit",
       "topic.prefix": "prod.postgres.",
       "poll.interval.ms": "2000",
       "tasks.max": "1",
@@ -159,8 +174,11 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ### 3.1 Create MinIO bucket
 
 ```bash
-docker exec minio mc alias set local http://localhost:9000 admin password
-docker exec minio mc mb local/kafka-data-lake
+docker exec minio mc alias set local http://localhost:9000 minioadmin minioadmin
+# The connect profile's minio-setup service already provisioned the bucket.
+# Create it here only if it does not exist (safe to re-run):
+docker exec minio mc mb --ignore-existing local/kafka-data-lake
+docker exec minio mc ls local/
 ```
 
 ### 3.2 Deploy the S3 sink connector
@@ -183,14 +201,14 @@ curl -X POST http://localhost:8083/connectors \
       "flush.size": "100",
       "rotate.interval.ms": "30000",
       "partitioner.class": "io.confluent.connect.storage.partitioner.TimeBasedPartitioner",
+      "partition.duration.ms": "3600000",
       "path.format": "'\''year'\''=YYYY/'\''month'\''=MM/'\''day'\''=dd/'\''hour'\''=HH",
       "locale": "en_US",
       "timezone": "UTC",
       "timestamp.extractor": "RecordField",
       "timestamp.field": "updated_at",
-      "s3.credentials.provider.class": "com.amazonaws.auth.AWSStaticCredentialsProvider",
-      "s3.credentials.provider.aws.access.key.id": "admin",
-      "s3.credentials.provider.aws.secret.access.key": "password"
+      "aws.access.key.id": "minioadmin",
+      "aws.secret.access.key": "minioadmin"
     }
   }' | jq .
 ```
@@ -227,15 +245,15 @@ curl -X PUT http://localhost:8083/connectors/orders-s3-sink/config \
     "storage.class": "io.confluent.connect.s3.storage.S3Storage",
     "format.class": "io.confluent.connect.s3.format.json.JsonFormat",
     "flush.size": "100",
+    "behavior.on.null.values": "ignore",
     "errors.tolerance": "all",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",
     "errors.deadletterqueue.topic.name": "orders-dlq",
     "errors.deadletterqueue.topic.replication.factor": "3",
     "errors.deadletterqueue.context.headers.enable": "true",
-    "s3.credentials.provider.class": "com.amazonaws.auth.AWSStaticCredentialsProvider",
-    "s3.credentials.provider.aws.access.key.id": "admin",
-    "s3.credentials.provider.aws.secret.access.key": "password"
+    "aws.access.key.id": "minioadmin",
+    "aws.secret.access.key": "minioadmin"
   }' | jq .
 ```
 
@@ -316,6 +334,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic prod.postgres.orders \
   --group lab4-catchup \
+  --from-beginning \
   --timeout-ms 15000 \
   --property print.key=true \
   | grep paused-order

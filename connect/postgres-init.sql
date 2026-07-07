@@ -1,14 +1,12 @@
--- Seed data for the Lab 4 JDBC source connector (connect profile).
--- The connector reads the `orders` table incrementally using id + updated_at.
-CREATE TABLE IF NOT EXISTS orders (
-    id         SERIAL PRIMARY KEY,
-    customer   TEXT           NOT NULL,
-    amount     NUMERIC(10,2)  NOT NULL,
-    updated_at TIMESTAMP      NOT NULL DEFAULT now()
-);
-
-INSERT INTO orders (customer, amount) VALUES
-    ('alice', 99.99),
-    ('bob',   249.50),
-    ('carol', 19.99),
-    ('dave',  5.00);
+-- Lab 4 (connect profile) — database bootstrap.
+--
+-- The `orders_db` database and `kafka_user` role are created by the postgres
+-- image from POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD in docker-compose.yml.
+--
+-- The `orders` table is intentionally NOT created here: Lab 4 Exercise 1.1 has
+-- students CREATE and seed it (id, order_id, customer_id, amount, status,
+-- created_at, updated_at) as part of the exercise. Pre-creating it here would
+-- collide with that step (table already exists) and use a different schema than
+-- the later CDC / DLQ exercises expect.
+--
+-- Nothing to do at init time.
