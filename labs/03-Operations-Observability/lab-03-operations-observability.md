@@ -48,8 +48,15 @@ docker compose ps
 Access:
 
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
-- Kafdrop: `http://localhost:9000`
+- Grafana: `http://localhost:3000` (login `admin` / `admin`)
+- Kafka UI: `http://localhost:8080`
+
+> **Metrics sources:** the monitoring stack scrapes two exporters — **kafka-exporter**
+> (consumer lag, topic/partition metrics) and a **JMX exporter** on each broker
+> (broker-level signals: active controller, under-replicated partitions, request latency,
+> ISR shrink). Grafana comes **pre-provisioned** with the Prometheus datasource and a
+> **"Kafka Cluster Overview"** dashboard (in the *Kafka* folder) — open Grafana and it's
+> already populated, no setup needed.
 
 ---
 

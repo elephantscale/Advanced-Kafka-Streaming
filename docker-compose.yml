@@ -159,6 +159,11 @@ services:
       GF_SECURITY_ADMIN_USER: "admin"
       GF_SECURITY_ADMIN_PASSWORD: "admin"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
+    # Auto-provision the Prometheus datasource + the Kafka Cluster Overview dashboard,
+    # so Grafana is populated on startup (no manual datasource/dashboard setup).
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "3000:3000"
     depends_on:

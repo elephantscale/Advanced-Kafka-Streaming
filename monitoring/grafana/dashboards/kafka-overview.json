@@ -1,0 +1,78 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "schemaVersion": 39,
+  "tags": ["kafka"],
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "10s",
+  "title": "Kafka Cluster Overview",
+  "uid": "kafka-overview",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active Controllers",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "red", "value": null }, { "color": "green", "value": 1 }, { "color": "red", "value": 2 } ] } } },
+      "targets": [ { "expr": "sum(kafka_controller_kafkacontroller_activecontrollercount)", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Under-Replicated Partitions",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+      "targets": [ { "expr": "sum(kafka_server_replicamanager_underreplicatedpartitions)", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Offline Partitions",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+      "targets": [ { "expr": "sum(kafka_controller_kafkacontroller_offlinepartitionscount)", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Brokers Online",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "count(up{job=\"kafka-jmx\"} == 1)", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Consumer Lag by Group",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "max(kafka_consumergroup_lag) by (consumergroup)", "legendFormat": "{{consumergroup}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Messages In / sec (per broker)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "kafka_server_brokertopicmetrics_messagesinpersec_oneminuterate", "legendFormat": "{{instance}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bytes In / Out per sec",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(kafka_server_brokertopicmetrics_bytesinpersec_oneminuterate)", "legendFormat": "bytes in", "refId": "A" },
+        { "expr": "sum(kafka_server_brokertopicmetrics_bytesoutpersec_oneminuterate)", "legendFormat": "bytes out", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Handler Avg Idle % (per broker)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent", "legendFormat": "{{instance}}", "refId": "A" } ]
+    }
+  ]
+}
