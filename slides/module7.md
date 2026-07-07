@@ -11,6 +11,7 @@ Elephant Scale
 - Partition key design and consumer group topology
 - Efficient filtering: headers, schemas, Kafka Streams branching, Flink SQL
 - Benchmark: duplication vs filtering
+- Broker and topic configuration for high volume
 - KEDA autoscaling based on consumer lag
 
 ---
@@ -271,6 +272,36 @@ At 50,000 messages with 33% wanted (emea):
 
 ---
 
+## Broker & Topic Configuration for High Volume
+
+At fan-out scale, configuration is the difference between a cluster that keeps up and one that falls over. The knobs that matter most:
+
+- **Partitions** — the unit of parallelism; size for **peak** consumer throughput, not today's load. More partitions = more parallel consumers, but also more open files and longer rebalances.
+- **Replication factor = 3** with **`min.insync.replicas=2`** — the standard durable-yet-available setting for production topics.
+- **`retention.ms` / `retention.bytes`** — cap what you keep; high-volume topics fill disk fast, so bound retention deliberately.
+- **`segment.bytes`** — larger segments mean fewer files and less overhead at high throughput.
+- **`compression.type=producer`** at the topic — the broker stores exactly what the producer sent; use **lz4** (low CPU) or **zstd** (best ratio) for big network and disk savings.
+
+> Pick partition count from **target throughput ÷ per-consumer throughput**, then round up for headroom — repartitioning a live high-volume topic is disruptive.
+
+![Broker tuning knobs](../images/placeholder-broker-tuning.png)
+
+---
+
+## Tuning Throughput vs Durability
+
+Every high-volume setting is a point on the throughput ↔ durability line — choose it deliberately:
+
+- **Producer batching** — raise `batch.size` and set `linger.ms` to 5–20 ms: trades a little latency for **much** higher throughput (fewer, larger requests).
+- **`acks`** — `acks=all` (durable, slower) vs `acks=1` (faster, risks loss on leader failure). Fan-out **ingestion** often uses `acks=1`; systems of record use `acks=all`.
+- **Compression** — `zstd` for best ratio, `lz4` for lowest CPU; both cut broker I/O dramatically at volume.
+- **Broker threads** — scale `num.network.threads` and `num.io.threads` with cores and connection count.
+- **Consumer fetch** — larger `fetch.min.bytes` / `fetch.max.wait.ms` let consumers pull bigger batches, raising throughput per poll.
+
+> There is no single "fast" configuration: set the **durability floor first** (`acks`, `min.insync.replicas`), then tune batching and compression for throughput underneath it.
+
+---
+
 ## Module 7 Summary
 
 - Single broad topic + header filtering is the most storage-efficient fan-out design
@@ -280,6 +311,7 @@ At 50,000 messages with 33% wanted (emea):
 - Flink SQL provides declarative filtering without redeployment (the modern successor to ksqlDB)
 - KEDA autoscaling ties consumer replica count to Prometheus lag metric
 - Cap `maxReplicaCount` to partition count per consumer group
+- High-volume tuning: size partitions for peak, compress (lz4/zstd), batch producers; set the durability floor (`acks`, `min.insync.replicas`) first, then tune throughput
 
 ---
 

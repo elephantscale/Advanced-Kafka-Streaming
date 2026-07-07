@@ -13,6 +13,7 @@ Elephant Scale
 - Kafka queues and work-distribution patterns
 - Modernizing legacy event-processing systems
 - Serverless Kafka: MSK Serverless and Confluent Cloud
+- Upgrading Kafka in the KRaft era: safe, fast rolling upgrades
 - Future directions in event-driven architecture
 
 ---
@@ -263,6 +264,48 @@ Before migrating to a managed/serverless offering:
 
 ---
 
+## Upgrading Kafka in the KRaft Era
+
+Upgrades are where availability promises are tested. KRaft (Kafka 4, ZooKeeper-free) **simplified the upgrade story** — one system to upgrade, not two — but the discipline is unchanged: **never lose the controller quorum, never drop a partition below `min.insync.replicas`.**
+
+What KRaft changed:
+- **No ZooKeeper** — there is no separate ensemble to upgrade first; brokers and controllers are the whole system.
+- **Feature flags via `metadata.version`** — cluster capabilities are gated by a metadata level you raise *after* every node runs the new binary (the modern replacement for `inter.broker.protocol.version`, managed with `kafka-features.sh`).
+- **Controllers roll like brokers** — the KRaft controller quorum upgrades one node at a time, always preserving the majority.
+
+> Goal: a **zero-downtime rolling upgrade** — clients never notice, because a healthy cluster always keeps a leader and a full ISR for every partition.
+
+![Rolling upgrade](../images/placeholder-rolling-upgrade.png)
+
+---
+
+## Rolling Upgrade — The Safe Procedure
+
+Upgrade **one node at a time**, and only advance when the cluster is fully healthy again:
+
+1. **Roll the controllers first**, one at a time — keep the quorum majority online throughout.
+2. For each **broker**: stop it, install the new binary, restart, then **wait for `UnderReplicatedPartitions = 0`** and the ISR to fully re-expand before touching the next node.
+3. Once **every** node runs the new version, **raise `metadata.version`** (`kafka-features.sh upgrade`) to enable the new features — never before.
+4. Run a **preferred-leader election** afterward to rebalance leadership evenly across brokers.
+
+> The wait-for-URP-zero step is the whole game: skip it and you can take two replicas of the same partition down at once → offline partition → downtime.
+
+---
+
+## Optimizing Upgrade Time & Availability
+
+Faster and safer are **not** in tension — the same design gives you both:
+
+- **`min.insync.replicas=2` + `acks=all`** — a single broker down (the one being upgraded) still accepts writes, so the roll never blocks producers.
+- **RF ≥ 3** — tolerate the upgrading broker being offline with room to spare.
+- **Watch three signals** through the roll: **URP** (must return to 0 before the next node), **consumer lag** (should stay flat), **request latency** (brief blips are fine).
+- **Parallelize safely** — brokers in different racks/AZs can roll a bit faster, but **never two replicas of the same partition** at once.
+- **Automate it** — Strimzi (Kubernetes) and Cruise Control run the roll-and-wait loop for you, removing human error and cutting total upgrade time.
+
+> The single biggest time-saver: proper replication + `min.insync.replicas` lets you roll **without draining traffic** — the cluster carries full load the entire time.
+
+---
+
 ## Module 6 Summary
 
 - Multi-cluster federation via MirrorMaker 2 supports global, multi-cloud topologies
@@ -271,6 +314,7 @@ Before migrating to a managed/serverless offering:
 - Native queue semantics — Share Groups (KIP-932, Kafka 4) — enable Kafka as a traditional work queue, decoupled from partition count
 - Serverless Kafka (MSK Serverless, Confluent Cloud) eliminates infrastructure management
 - Modernizing legacy: strangler fig pattern with bridge connectors
+- KRaft-era upgrades roll one node at a time, waiting for URP=0; `min.insync.replicas`+`acks=all` keep it zero-downtime
 - Future: Kafka + Iceberg, AI-native pipelines, data mesh
 
 ---
