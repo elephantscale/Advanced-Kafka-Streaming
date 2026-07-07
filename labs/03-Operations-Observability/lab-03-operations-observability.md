@@ -11,7 +11,7 @@
 
 By the end of this lab you will be able to:
 
-- Collect Kafka metrics with Prometheus + JMX exporter
+- Collect Kafka metrics with Prometheus + kafka-exporter
 - Visualize broker and consumer health in Grafana
 - Track consumer lag and diagnose lag spikes
 - Perform core operational procedures: topic management, consumer group reset, retention change
@@ -51,12 +51,12 @@ Access:
 - Grafana: `http://localhost:3000` (login `admin` / `admin`)
 - Kafka UI: `http://localhost:8080`
 
-> **Metrics sources:** the monitoring stack scrapes two exporters — **kafka-exporter**
-> (consumer lag, topic/partition metrics) and a **JMX exporter** on each broker
-> (broker-level signals: active controller, under-replicated partitions, request latency,
-> ISR shrink). Grafana comes **pre-provisioned** with the Prometheus datasource and a
-> **"Kafka Cluster Overview"** dashboard (in the *Kafka* folder) — open Grafana and it's
-> already populated, no setup needed.
+> **Metrics source:** the monitoring stack scrapes **kafka-exporter**, which exposes
+> consumer-group lag and topic/partition health (including under-replicated partitions and
+> in-sync replicas). Control-plane facts like the active controller come from the cluster
+> directly (`kafka-metadata-quorum.sh`), not the exporter. Grafana comes **pre-provisioned**
+> with the Prometheus datasource and a **"Kafka Cluster Overview"** dashboard (in the *Kafka*
+> folder) — open Grafana and it's already populated, no setup needed.
 
 ---
 
@@ -73,12 +73,23 @@ All Kafka broker targets should show `"health": "up"`.
 
 ### 1.2 Confirm key broker metrics exist
 
-```bash
-# Active controller — should be exactly 1
-curl -s 'http://localhost:9090/api/v1/query?query=kafka_controller_kafkacontroller_activecontrollercount' | jq .
+The monitoring stack scrapes **kafka-exporter**, which exposes topic/partition and
+consumer-group metrics. Two of the most important operational signals:
 
+```bash
 # Under-replicated partitions — should be 0 at healthy rest
-curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_underreplicatedpartitions' | jq .
+curl -s 'http://localhost:9090/api/v1/query?query=sum(kafka_topic_partition_under_replicated_partition)' | jq '.data.result'
+
+# Number of brokers the exporter can see
+curl -s 'http://localhost:9090/api/v1/query?query=kafka_brokers' | jq '.data.result'
+```
+
+The **active controller** is a KRaft control-plane fact, not a kafka-exporter metric —
+confirm it directly from the cluster (exactly one node is the quorum leader):
+
+```bash
+docker exec kafka-1 kafka-metadata-quorum.sh --bootstrap-server localhost:9092 \
+  describe --status | grep -E "LeaderId|LeaderEpoch"
 ```
 
 **Questions:**
@@ -231,7 +242,7 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 ### 4.1 Baseline URP value
 
 ```bash
-curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_underreplicatedpartitions' | jq .
+curl -s 'http://localhost:9090/api/v1/query?query=sum(kafka_topic_partition_under_replicated_partition)' | jq .
 ```
 
 Expected: `0`
@@ -243,7 +254,7 @@ docker compose stop kafka-2
 sleep 15
 
 # Check URP via Prometheus
-curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_underreplicatedpartitions' | jq .
+curl -s 'http://localhost:9090/api/v1/query?query=sum(kafka_topic_partition_under_replicated_partition)' | jq .
 
 # Check via CLI
 docker exec kafka-1 kafka-topics.sh \
@@ -258,7 +269,7 @@ docker compose start kafka-2
 sleep 30
 
 # Confirm URP returns to zero
-curl -s 'http://localhost:9090/api/v1/query?query=kafka_server_replicamanager_underreplicatedpartitions' | jq .
+curl -s 'http://localhost:9090/api/v1/query?query=sum(kafka_topic_partition_under_replicated_partition)' | jq .
 ```
 
 **Questions:**
@@ -340,13 +351,13 @@ Create and test these Prometheus alert expressions in the Prometheus UI (`http:/
 
 ```promql
 # Under-replicated partitions (critical)
-kafka_server_replicamanager_underreplicatedpartitions > 0
+sum(kafka_topic_partition_under_replicated_partition) > 0
 
 # High consumer lag (warning)
 max(kafka_consumergroup_lag) by (consumergroup) > 50000
 
 # Missing active controller (critical)
-kafka_controller_kafkacontroller_activecontrollercount != 1
+# active controller: check via kafka-metadata-quorum.sh --describe --status (control-plane, not in kafka-exporter)
 
 # Broker offline (critical)
 count(kafka_server_brokerstate) < 3
