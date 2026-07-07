@@ -304,7 +304,7 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe --topic perf-test \
-  | grep "Leader:" | awk '{print "Leader:", $4, "Replicas:", $6}'
+  | grep "Leader:" | awk '{print "Partition:", $4, "Leader:", $6, "Replicas:", $8}'
 ```
 
 ### 5.2 Generate a reassignment plan to spread load
@@ -317,14 +317,20 @@ EOF
 
 docker cp /tmp/topics.json kafka-1:/tmp/topics.json
 
+# --generate prints TWO JSON blocks wrapped in human-readable headers
+# ("Current ..." and "Proposed ..."). We want ONLY the *proposed* plan, which is
+# the last JSON line. Extract it, then copy it INTO the broker container so the
+# --execute / --verify steps below (which run via `docker exec`) can read it.
 docker exec kafka-1 kafka-reassign-partitions.sh \
   --bootstrap-server localhost:9092 \
   --topics-to-move-json-file /tmp/topics.json \
   --broker-list "1,2,3" \
-  --generate \
-  > /tmp/reassign-plan.txt
+  --generate 2>/dev/null \
+  | grep -E '^\{"version"' | tail -1 > /tmp/reassign-plan.json
 
-cat /tmp/reassign-plan.txt
+docker cp /tmp/reassign-plan.json kafka-1:/tmp/reassign-plan.json
+
+cat /tmp/reassign-plan.json
 ```
 
 ### 5.3 Execute with throttle to protect live producers
@@ -333,14 +339,14 @@ cat /tmp/reassign-plan.txt
 # Apply reassignment with replication throttle (50 MB/s)
 docker exec kafka-1 kafka-reassign-partitions.sh \
   --bootstrap-server localhost:9092 \
-  --reassignment-json-file /tmp/reassign-plan.txt \
+  --reassignment-json-file /tmp/reassign-plan.json \
   --throttle 52428800 \
   --execute
 
 # Monitor progress
 docker exec kafka-1 kafka-reassign-partitions.sh \
   --bootstrap-server localhost:9092 \
-  --reassignment-json-file /tmp/reassign-plan.txt \
+  --reassignment-json-file /tmp/reassign-plan.json \
   --verify
 ```
 
