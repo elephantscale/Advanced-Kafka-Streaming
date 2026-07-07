@@ -153,11 +153,20 @@ python slow_consumer.py &
 
 ### 2.3 Watch lag grow
 
+> **Run this in a separate terminal.** `watch` takes over the screen and refreshes every
+> 5s, so it needs its own terminal — the slow consumer from 2.2 keeps running in the first
+> one. Leave this open while you observe, then `Ctrl+C` to exit before Exercise 3.
+
 ```bash
 watch -n 5 "docker exec kafka-1 kafka-consumer-groups.sh \
   --bootstrap-server localhost:9092 \
   --describe --group obs-lag-cg 2>/dev/null"
 ```
+
+The perf-test in 2.1 produced 100k records in a burst and finished; the slow consumer
+drains at only ~20 records/sec. So the **LAG** column starts high and ticks down slowly —
+that is the lesson: a slow consumer can't keep up, and lag is the early-warning signal. To
+watch lag *climb* live, re-run the 2.1 perf-test in a third terminal while the consumer runs.
 
 ### 2.4 Query lag via Prometheus
 
