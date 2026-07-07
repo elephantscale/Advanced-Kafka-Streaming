@@ -286,6 +286,9 @@ At fan-out scale, configuration is the difference between a cluster that keeps u
 
 ![Broker tuning knobs](../images/placeholder-broker-tuning.png)
 
+Notes:
+This is the "best practices" payoff of the whole module. The one number that matters most is partition count — size it for peak, because repartitioning a live high-volume topic is genuinely painful. Give them the formula out loud: target throughput ÷ per-consumer throughput, rounded up for headroom. Compression is the cheapest win on the slide — lz4 or zstd cut network and disk dramatically for near-zero effort, so it's the first knob I'd turn.
+
 ---
 
 ## Tuning Throughput vs Durability
@@ -299,6 +302,9 @@ Every high-volume setting is a point on the throughput ↔ durability line — c
 - **Consumer fetch** — larger `fetch.min.bytes` / `fetch.max.wait.ms` let consumers pull bigger batches, raising throughput per poll.
 
 > There is no single "fast" configuration: set the **durability floor first** (`acks`, `min.insync.replicas`), then tune batching and compression for throughput underneath it.
+
+Notes:
+Frame every knob as a point on a line, not a right answer. The teaching move: set the durability floor FIRST — acks and min.insync.replicas — based on whether this topic is ingestion or a system of record, THEN tune batching and compression for speed underneath it. batch.size plus linger.ms is the highest-leverage producer change: a few milliseconds of latency buys big throughput. Tie it back to fan-out — ingestion often runs acks=1, the downstream record store runs acks=all.
 
 ---
 

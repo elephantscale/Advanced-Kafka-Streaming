@@ -277,6 +277,9 @@ What KRaft changed:
 
 ![Rolling upgrade](../images/placeholder-rolling-upgrade.png)
 
+Notes:
+The point to land: KRaft made upgrades *simpler* — one system to upgrade, not two — but the safety rule is unchanged. Frame an upgrade as just a controlled series of broker restarts: everything they learned about ISR and min.insync.replicas in Module 5 is exactly what keeps it zero-downtime. Quick engagement — ask the room: who's run a rolling upgrade, and what went wrong?
+
 ---
 
 ## Rolling Upgrade — The Safe Procedure
@@ -289,6 +292,9 @@ Upgrade **one node at a time**, and only advance when the cluster is fully healt
 4. Run a **preferred-leader election** afterward to rebalance leadership evenly across brokers.
 
 > The wait-for-URP-zero step is the whole game: skip it and you can take two replicas of the same partition down at once → offline partition → downtime.
+
+Notes:
+Walk the four steps slowly — this is the procedure they'll actually run in production. Emphasize step 2's wait-for-URP-zero: that discipline is what separates a clean upgrade from an outage. The classic failure is impatience — restarting the next broker before the previous one's replicas caught up, taking two replicas of the same partition down together. And metadata.version last, never before: enabling a feature the still-old binaries don't understand will break them.
 
 ---
 
@@ -303,6 +309,9 @@ Faster and safer are **not** in tension — the same design gives you both:
 - **Automate it** — Strimzi (Kubernetes) and Cruise Control run the roll-and-wait loop for you, removing human error and cutting total upgrade time.
 
 > The single biggest time-saver: proper replication + `min.insync.replicas` lets you roll **without draining traffic** — the cluster carries full load the entire time.
+
+Notes:
+The reframe to sell: fast and safe are not opposites. With RF=3 and min.insync.replicas=2 you roll under full load — no maintenance window, no draining traffic. That IS the optimization. The three signals (URP, lag, latency) are the go/no-go gate between nodes. Close on automation: nobody should hand-roll a 30-broker cluster — Strimzi and Cruise Control run the wait-and-watch loop for you and cut total upgrade time.
 
 ---
 
