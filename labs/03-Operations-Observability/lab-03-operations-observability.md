@@ -415,6 +415,30 @@ You completed:
 
 ---
 
+## Cleanup
+
+Before moving on to Lab 4, tidy up what this lab left running — **no full teardown needed**
+(Lab 4 creates its own topics and data; `obs.lag.demo` won't interfere):
+
+```bash
+# 1. Stop the slow consumer if it's still running (from Exercise 2)
+pkill -f slow_consumer.py
+
+# 2. Make sure all three brokers are up — Exercise 4 stopped kafka-2;
+#    confirm 4.3 restarted it (Connect's internal topics are RF=3 and need all three)
+docker compose ps
+docker compose start kafka-2      # only if kafka-2 shows as stopped
+
+# 3. (Optional) free resources — Lab 4 does not use the monitoring stack
+docker compose --profile monitoring stop
+```
+
+> Do **not** run `docker compose down` — that wipes the cluster and you would have to
+> re-create everything. Just stop the leftover consumer, confirm all brokers are up, and
+> (optionally) stop monitoring.
+
+---
+
 ## What's Next
 
 **Module 4** goes into connectors and integrations — you will deploy source and sink connectors and observe how Kafka Connect handles errors and offset recovery.
