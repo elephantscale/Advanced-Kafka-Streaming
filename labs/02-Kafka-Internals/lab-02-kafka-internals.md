@@ -44,8 +44,10 @@ Same Docker Compose cluster from Lab 1.
 # Verify cluster is running
 docker compose ps
 
-# Set broker shell alias
-alias k1='docker exec kafka-1'
+# Set broker shell alias. The -i is REQUIRED: without it, `docker exec` does not
+# forward piped stdin to the container, so a piped producer (e.g. `... | k1
+# kafka-console-producer.sh`) receives no input and writes 0 records.
+alias k1='docker exec -i kafka-1'
 ```
 
 ---
