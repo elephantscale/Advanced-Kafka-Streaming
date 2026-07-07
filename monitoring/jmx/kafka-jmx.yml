@@ -1,0 +1,50 @@
+# Prometheus JMX exporter config for Kafka brokers.
+# Loaded as a Java agent on each broker (see docker-compose KAFKA_OPTS), exposing
+# broker JMX metrics on :7071. kafka-exporter only gives lag/topic metrics; these
+# are the broker-level signals Lab 3 and the Grafana dashboards need
+# (active controller, under-replicated partitions, request latency, ISR shrink, ...).
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+rules:
+  # --- Controller ---
+  - pattern: "kafka.controller<type=KafkaController, name=ActiveControllerCount><>Value"
+    name: kafka_controller_kafkacontroller_activecontrollercount
+    type: GAUGE
+  - pattern: "kafka.controller<type=KafkaController, name=OfflinePartitionsCount><>Value"
+    name: kafka_controller_kafkacontroller_offlinepartitionscount
+    type: GAUGE
+  - pattern: "kafka.controller<type=KafkaController, name=GlobalPartitionCount><>Value"
+    name: kafka_controller_kafkacontroller_globalpartitioncount
+    type: GAUGE
+
+  # --- Replication health ---
+  - pattern: "kafka.server<type=ReplicaManager, name=UnderReplicatedPartitions><>Value"
+    name: kafka_server_replicamanager_underreplicatedpartitions
+    type: GAUGE
+  - pattern: "kafka.server<type=ReplicaManager, name=IsrShrinksPerSec><>Count"
+    name: kafka_server_replicamanager_isrshrinkspersec_count
+    type: COUNTER
+  - pattern: "kafka.server<type=ReplicaManager, name=IsrExpandsPerSec><>Count"
+    name: kafka_server_replicamanager_isrexpandspersec_count
+    type: COUNTER
+
+  # --- Throughput ---
+  - pattern: "kafka.server<type=BrokerTopicMetrics, name=(MessagesInPerSec|BytesInPerSec|BytesOutPerSec)><>OneMinuteRate"
+    name: kafka_server_brokertopicmetrics_$1_oneminuterate
+    type: GAUGE
+
+  # --- Request latency percentiles (produce/fetch/...) ---
+  - pattern: "kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(\\w+)><>(\\d+)thPercentile"
+    name: kafka_network_requestmetrics_totaltimems
+    labels:
+      request: "$1"
+      quantile: "0.$2"
+    type: GAUGE
+
+  # --- Request handler / network processor idle ---
+  - pattern: "kafka.server<type=KafkaRequestHandlerPool, name=RequestHandlerAvgIdlePercent><>OneMinuteRate"
+    name: kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent
+    type: GAUGE
+
+  # --- Catch-all: expose everything else, lowercased ---
+  - pattern: ".*"

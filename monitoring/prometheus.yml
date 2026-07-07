@@ -5,6 +5,13 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
+  # kafka-exporter: consumer lag + topic/partition metrics (Lab 7 KEDA uses lag)
   - job_name: kafka
     static_configs:
       - targets: ["kafka-exporter:9308"]
+
+  # JMX exporter on each broker: broker-level JMX metrics (active controller,
+  # under-replicated partitions, request latency, ISR shrink) — Lab 3 / Grafana.
+  - job_name: kafka-jmx
+    static_configs:
+      - targets: ["kafka-1:7071", "kafka-2:7071", "kafka-3:7071"]
