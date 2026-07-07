@@ -101,6 +101,19 @@ docker exec kafka-1 kafka-metadata-quorum.sh --bootstrap-server localhost:9092 \
 
 ## Exercise 2 — Consumer Lag Monitoring
 
+> **Terminals for this exercise** — this exercise runs things concurrently, so keep track of
+> which terminal is which:
+>
+> | Terminal | Runs | Notes |
+> |----------|------|-------|
+> | **T1** | 2.1 produce, then 2.2 slow consumer (`… &`) | one-shot commands; the consumer runs in the background here |
+> | **T2** | 2.3 `watch` lag | dedicated — `watch` takes over the screen; `Ctrl+C` to exit |
+> | **T3** *(optional)* | re-run 2.1 perf-test to make lag climb live | only if you want to *see lag rise* during class |
+>
+> The one-off queries (2.4 `curl`, and the Grafana browser tab) can run in **any** terminal.
+> **Rule of thumb:** anything that *stays running* (a background consumer, `watch`, a live
+> producer) gets its **own terminal**; one-shot commands can share T1.
+
 ### 2.1 Create a test topic and produce load
 
 ```bash
@@ -146,9 +159,11 @@ except KeyboardInterrupt:
 ```
 
 ```bash
-# Runs in the background (&) so it keeps consuming slowly while you observe lag.
-# You'll stop it in Exercise 3.2 with: pkill -INT -f slow_consumer.py
-python slow_consumer.py &
+# In T1. Runs in the background (&) so it keeps consuming slowly while you observe lag.
+# Output goes to a log file so it doesn't spam this terminal (tail it any time with
+# `tail -f /tmp/cons.log`). You'll stop it in Exercise 3.2 with: pkill -INT -f slow_consumer.py
+source .venv/bin/activate
+python slow_consumer.py > /tmp/cons.log 2>&1 &
 ```
 
 ### 2.3 Watch lag grow
