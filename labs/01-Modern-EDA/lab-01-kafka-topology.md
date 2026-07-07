@@ -363,7 +363,7 @@ docker exec kafka-1 kafka-console-consumer.sh \
 docker exec kafka-1 kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe \
-  --topic orders | grep Leader | awk '{print $4}' | sort | uniq -c
+  --topic orders | grep Leader | awk '{print $6}' | sort | uniq -c
 ```
 
 ### 6.2 Simulate a broker failure
