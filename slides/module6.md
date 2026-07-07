@@ -15,7 +15,7 @@ Elephant Scale
 - Serverless Kafka: MSK Serverless and Confluent Cloud
 - Upgrading Kafka in the KRaft era: safe, fast rolling upgrades
 - Future directions in event-driven architecture
-
+![](../images/pexels-ann-h-45017-2646533.jpg)
 ---
 
 ## Where Kafka Is Going
@@ -45,7 +45,7 @@ A trends module is only useful if you know **what to bet on today** vs what to j
 
 > Rule of thumb: make architecture decisions on the "ready now" column; treat "horizon" as
 > informed peripheral vision, not a roadmap.
-
+![](../images/pexels-kienvirak-6164424.jpg)
 ---
 
 ## Multi-Cluster Federation
@@ -144,7 +144,7 @@ Raw Events
     │
   [Downstream Actions]   ← routing, alerts, A/B decisions
 ```
-
+![](../images/pexels-magda-ehlers-pexels-35280311.jpg)
 ---
 
 ## Streaming ML Inference: Two Patterns
@@ -252,6 +252,7 @@ Before migrating to a managed/serverless offering:
 - ☐ Cost model understood (traffic + retention pricing)
 - ☐ No reliance on ZooKeeper or self-managed KRaft config
 
+![](../images/pexels-jakubzerdzicki-33349191.jpg)
 ---
 
 ## The Future of Event-Driven Architecture
@@ -295,7 +296,7 @@ Upgrade **one node at a time**, and only advance when the cluster is fully healt
 
 Notes:
 Walk the four steps slowly — this is the procedure they'll actually run in production. Emphasize step 2's wait-for-URP-zero: that discipline is what separates a clean upgrade from an outage. The classic failure is impatience — restarting the next broker before the previous one's replicas caught up, taking two replicas of the same partition down together. And metadata.version last, never before: enabling a feature the still-old binaries don't understand will break them.
-
+![](../images/pexels-luciansmom-11308101.jpg)
 ---
 
 ## Optimizing Upgrade Time & Availability
