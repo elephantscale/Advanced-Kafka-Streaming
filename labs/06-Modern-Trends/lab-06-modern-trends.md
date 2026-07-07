@@ -293,12 +293,25 @@ for w in 1 2 3; do
     --bootstrap-server localhost:9092 \
     --topic core.jobs \
     --group worker-cg \
+    --from-beginning \
     --timeout-ms 7000 \
     --property print.partition=true \
     2>/dev/null | sed "s/^/[worker-$w] /" &
 done
 wait
 ```
+
+> **`--from-beginning` matters here.** The 60 jobs were published *before* the
+> workers start, and a brand-new consumer group defaults to `auto.offset.reset=latest`
+> — so without `--from-beginning` the workers join at the end of the log and consume
+> **nothing**. With it, they read all 60.
+>
+> **Expect uneven splits from the CLI.** Because these are three *separate*
+> console-consumer processes racing to join, whichever joins first is assigned the
+> partitions and can drain them before the others finish joining — so you may see one
+> worker take most or all of the jobs. That is a property of the CLI demo, not of
+> consumer groups; the durable teaching point is the one below — distribution is by
+> *partition*, so parallelism is capped at the partition count.
 
 **Questions:**
 
