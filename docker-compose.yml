@@ -20,10 +20,6 @@
 x-kafka-common: &kafka-common
   image: apache/kafka:4.0.0
   networks: [kafka]
-  # Mount the JMX exporter agent + config (read-only) so brokers expose JMX metrics
-  # on :7071 for Prometheus (kafka-exporter alone lacks broker-level JMX signals).
-  volumes:
-    - ./monitoring/jmx:/opt/jmx:ro
   healthcheck:
     test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
     interval: 10s
@@ -41,10 +37,6 @@ x-kafka-env: &kafka-env
   # swap-thrash a small VM into unresponsiveness. 512m x3 ≈ 1.5 GB of heap,
   # which fits comfortably and degrades gracefully if a VM is undersized.
   KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
-  # Load the Prometheus JMX exporter as a Java agent, exposing broker JMX metrics
-  # on :7071 (scraped by Prometheus as kafka-N:7071). Gives Lab 3 / Grafana the
-  # broker-level signals kafka-exporter lacks (active controller, URP, latency, ISR).
-  KAFKA_OPTS: "-javaagent:/opt/jmx/jmx_prometheus_javaagent.jar=7071:/opt/jmx/kafka-jmx.yml"
   # Same cluster id on every node (required to form one KRaft cluster).
   CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
   KAFKA_PROCESS_ROLES: "broker,controller"
