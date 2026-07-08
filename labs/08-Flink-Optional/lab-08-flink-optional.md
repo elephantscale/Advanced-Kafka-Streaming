@@ -5,10 +5,12 @@
 - **Difficulty:** Intermediate (optional — for the curious / fast finishers)
 - **Kafka version:** 4.x (KRaft mode); **Flink 1.20**
 
-> ⚠️ **OPTIONAL LAB — verify before class.** This lab adds a Flink cluster and depends on the
+> ✅ **OPTIONAL LAB — verified end-to-end.** This lab adds a Flink cluster and depends on the
 > Flink ↔ Kafka connector version pairing (Flink 1.20 + `flink-sql-connector-kafka:3.3.0-1.20`).
-> It has **not** been run end-to-end yet — treat it as instructor-verified-first, then offer it
-> to students who finish the core labs early or want the modern stream-processing path.
+> Verified on the local Docker Compose stack: Kafka-source and Kafka-sink tables, continuous
+> filter, aggregation and tumbling-window plans, and the `INSERT INTO` ETL job (live emea events
+> flow through to `flink.orders.emea` continuously). Offer it to students who finish the core
+> labs early or want the modern stream-processing path.
 
 ---
 

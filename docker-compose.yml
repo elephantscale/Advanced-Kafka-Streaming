@@ -245,7 +245,8 @@ services:
   # ---- flink profile (OPTIONAL Lab 8): Flink JobManager + TaskManager + SQL client ----
   # The flink-sql-connector-kafka jar is mounted onto Flink's classpath so Flink SQL can
   # read/write Kafka topics. Start with: docker compose --profile flink up -d
-  # UNVERIFIED first cut — the Flink/connector version pairing must be tested on the VM.
+  # Verified: Flink 1.20.1 + flink-sql-connector-kafka:3.3.0-1.20 read/write Kafka
+  # end-to-end (source table, filter, aggregation, tumbling window, INSERT INTO sink).
   flink-jobmanager:
     image: flink:1.20.1-scala_2.12-java17
     container_name: flink-jobmanager
