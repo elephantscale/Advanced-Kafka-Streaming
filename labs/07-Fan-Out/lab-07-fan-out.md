@@ -303,6 +303,14 @@ print(f'Speedup: {t_full/t_header:.2f}×')
 python benchmark_filtering.py
 ```
 
+> **Expect a modest speedup at this scale.** With 50,000 small JSON messages the
+> dominant cost is polling/network, not deserialization — so skipping the JSON parse
+> for ~2/3 of records often yields only a ~1× speedup here. That is the point of
+> Question 1: header filtering's CPU win grows with **larger payloads** and **more
+> expensive deserialization** (e.g. big nested JSON or Avro), and shrinks toward
+> nothing when most messages are "wanted" or cheap to parse. Don't expect a dramatic
+> number on this local run — reason about where on that curve 10M msg/sec sits.
+
 ### 4.2 Record results
 
 | Strategy | Total msgs processed | Elapsed (s) | Throughput (msg/s) |
@@ -320,7 +328,21 @@ python benchmark_filtering.py
 
 ## Exercise 5 — KEDA Autoscaler (Kubernetes)
 
-> **Note:** This exercise requires a Kubernetes cluster with KEDA installed. If not available, review the configuration and discuss the behavior.
+> **Note:** The KEDA autoscaler itself requires a Kubernetes cluster with KEDA
+> installed. If you don't have one, review the configuration and discuss the behavior
+> — but you can still verify the **data source** the autoscaler depends on. Bring up
+> the monitoring profile (`docker compose --profile monitoring up -d`), which runs
+> kafka-exporter + Prometheus, then confirm the exact metric the ScaledObject below
+> queries actually exists for one of your consumer groups from Exercise 2:
+>
+> ```bash
+> curl -s --data-urlencode \
+>   'query=max(kafka_consumergroup_lag{consumergroup="header-filter-emea"})' \
+>   http://localhost:9090/api/v1/query | python3 -m json.tool
+> ```
+>
+> A non-empty `result` (lag value) means KEDA would have a live signal to scale on.
+> `kafka_consumergroup_lag` is published by kafka-exporter, scraped by Prometheus.
 
 ### 5.1 Deploy a consumer deployment
 
