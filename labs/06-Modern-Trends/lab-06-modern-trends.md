@@ -49,6 +49,10 @@ docker compose ps
 
 ## Exercise 1 — Edge-to-Core Pipeline Simulation
 
+> **What this shows:** The classic edge-to-core shape — a high-volume raw topic at the edge, a filter/forward stage, and a smaller curated core topic. The concept that matters is *filtering early*: dropping non-critical events (temp < 80) before they cross the network shrinks bandwidth, storage, and downstream compute, which is the whole economic case for edge processing. Expect roughly a third of the 5000 events to pass (uniform temps over 20–110, so ~30% land at ≥ 80), and the forwarder to stop at exactly 1000 forwarded.
+>
+> **If a sharp student asks:** Note the deliberate partition bump (raw = 3, filtered = 6) — repartitioning at a stage boundary is legal and common, but it breaks per-key ordering guarantees across the boundary unless you re-key carefully; here the same `device_id` key is preserved, so a given device still lands on one partition of the filtered topic.
+
 ### 1.1 Create topics
 
 ```bash
@@ -90,6 +94,8 @@ print('Produced 5000 edge events')
 python edge_producer.py
 ```
 
+> **Why:** Run this (and every Python step in the lab) inside the activated virtualenv — without `source .venv/bin/activate`, the `from confluent_kafka import ...` line fails with `ModuleNotFoundError` because the package lives in the venv, not the system interpreter.
+
 ### 1.3 Filter and forward only critical telemetry (temp >= 80)
 
 ```python
@@ -130,6 +136,10 @@ print(f'Forwarded {forwarded} high-priority events')
 ---
 
 ## Exercise 2 — Streaming Feature Enrichment
+
+> **What this shows:** A stateful streaming stage — it turns each raw reading into ML-ready *features* (a 20-sample moving average and the delta from that average) computed per device. The key idea is that streaming feature engineering keeps state in-memory keyed by entity, so features reflect recent history rather than a single point; this is exactly what a downstream model needs to spot anomalies. Expect 1000 enriched events, each carrying `moving_avg_20` and `delta_from_avg`.
+>
+> **If a sharp student asks:** This in-process `defaultdict` of `deque`s is ephemeral state — if the enricher restarts, every window resets and early moving averages are computed over a partial history until the deques refill. Production systems solve this with fault-tolerant, partitioned state (Kafka Streams `KTable`/RocksDB backed by a changelog topic, or Flink keyed state with checkpoints) so the window survives restarts and rebalances.
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
@@ -193,6 +203,10 @@ python feature_enricher.py
 
 ## Exercise 3 — Mock Inference Integration
 
+> **What this shows:** The "AI in the stream" pattern — a Kafka consumer calls an external model service per event and writes scored results back to a topic. The concept is the separation of the *streaming runtime* from the *model runtime*: the model can be deployed, versioned, and scaled independently (a real-world Seldon/KServe/SageMaker endpoint slots in where the Flask mock sits). Expect 500 events scored and a handful flagged as alerts (risk ≥ 0.8, i.e. the temp > 95 branch).
+>
+> **If a sharp student asks:** Synchronous per-record HTTP calls make the model the throughput bottleneck and a single point of failure — one slow or down endpoint stalls the whole pipeline (here the `timeout=2` will raise and crash the loop rather than degrade gracefully). Production alternatives: micro-batch the requests, run inference async/concurrently, add retries with a circuit breaker, or embed the model in-process to trade operational flexibility for latency.
+
 ### 3.1 Start a mock model scoring service
 
 ```python
@@ -217,6 +231,8 @@ app.run(host='0.0.0.0', port=5001)
 ```bash
 python mock_model.py &
 ```
+
+> **Why:** The `&` backgrounds the Flask service so it keeps listening on `:5001` while you run the pipeline in the same shell — the inference pipeline in 3.2 POSTs to `http://localhost:5001/score` on every event, so this must already be up or every request fails with a connection-refused error.
 
 ### 3.2 Deploy a streaming inference pipeline
 
@@ -270,6 +286,10 @@ print(f'Processed {n} events, {alerts} alerts raised')
 ---
 
 ## Exercise 4 — Queue-Style Worker Pattern
+
+> **What this shows:** How far a plain consumer group gets you toward queue semantics — three workers sharing `worker-cg` split the 60 jobs so each job is processed once. The concept to land is the ceiling: a consumer group assigns whole *partitions*, so at most one consumer reads a given partition and parallelism is hard-capped at the partition count (6 here); a consumer group is a *log reader that load-balances by partition*, not a true queue with per-message hand-off. Expect the jobs consumed once in total, though the CLI split is usually lopsided (see the note below).
+>
+> **If a sharp student asks:** This is exactly what Kafka 4's **Share Groups (KIP-932)** fix. In a share group, *many* consumers cooperatively read the *same* partitions with per-record acknowledgement (ack / release / reject), so worker count is decoupled from partition count — you can run 50 workers against 6 partitions, and an un-acked record is redelivered rather than silently owned by an idle consumer. A classic consumer group can't do this because offset commit is per-partition and coarse-grained, which is why it isn't a real queue. Share Groups are early access in Kafka 4 and must be enabled on the cluster — if not, this exercise is the correct consumer-group approximation.
 
 ```bash
 docker exec kafka-1 kafka-topics.sh \
@@ -330,6 +350,10 @@ wait
 ---
 
 ## Exercise 5 — Serverless Readiness Checklist
+
+> **What this shows:** A structured way to judge whether a pipeline is portable to a managed/serverless Kafka (MSK Serverless, Confluent Cloud). The concept is that "cloud-ready" is mostly about *removing broker-host assumptions* — no shelling into brokers for metrics or admin, provisioning as code, idempotent producers, externalized schema — so the workload doesn't care who runs the brokers. Expect this to surface real gaps in the lab pipeline (for example, we scrape metrics via `docker exec`, which a serverless cluster won't allow).
+>
+> **If a sharp student asks:** The subtlest line is "no reliance on self-managed KRaft config" — serverless offerings hide broker/controller configuration entirely, so anything that tunes `log.*`, sets cluster-level defaults, or assumes a fixed broker count won't port; the fix is to push those concerns into per-topic configs and client settings, which the managed control plane still honors.
 
 Assess your pipeline against these migration criteria for Amazon MSK Serverless or Confluent Cloud:
 

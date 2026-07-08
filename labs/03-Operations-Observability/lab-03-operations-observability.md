@@ -62,6 +62,10 @@ Access:
 
 ## Exercise 1 — Verify Metric Scraping
 
+> **What this shows:** Before you can trust a dashboard, you must prove the pipeline is actually delivering data — Prometheus pulls (scrapes) targets on an interval, and a target that is `down` silently leaves stale or missing series that look like "all zeros." This exercise confirms every scrape target is `up`, that key operational metrics (under-replicated partitions, broker count) are populated, and that the KRaft control plane has exactly one active controller. Expect all broker targets `up`, URP `0`, `kafka_brokers` = 3, and a single `LeaderId` from the quorum.
+>
+> **If a sharp student asks:** "Why isn't there an `activecontrollercount` metric in kafka-exporter?" Because kafka-exporter only reads the data plane (topics, partitions, consumer-group offsets); the controller is a KRaft quorum role, so you confirm it with `kafka-metadata-quorum.sh describe --status`, where exactly one node reports as `LeaderId`. A value other than one leader means a quorum problem, not an exporter problem.
+
 ### 1.1 Check Prometheus scrape targets
 
 ```bash
@@ -101,6 +105,10 @@ docker exec kafka-1 kafka-metadata-quorum.sh --bootstrap-server localhost:9092 \
 
 ## Exercise 2 — Consumer Lag Monitoring
 
+> **What this shows:** Consumer lag — the gap between the log-end offset and a group's committed offset — is the single most important indicator of whether consumers are keeping up with producers. You produce a burst of 100k records, attach a deliberately slow consumer, and watch lag on three surfaces (CLI, Prometheus, Grafana) so students learn lag is a rate problem, not a one-time number. Expect LAG to start high after the burst and drain slowly, because the consumer processes only ~20 records/sec.
+>
+> **If a sharp student asks:** "Is the lag from kafka-exporter authoritative, and can it ever go negative or read stale?" The exporter derives lag as (partition high-water mark − committed offset) sampled on its own scrape interval, so it can briefly lag reality and, during an offset reset or a just-committed poll, momentarily show odd transient values; the CLI `kafka-consumer-groups.sh --describe` reads offsets live and is the ground truth. Lag is also per-partition — the group's total is the sum, so one hot partition can dominate.
+
 > **Terminals for this exercise** — this exercise runs things concurrently, so keep track of
 > which terminal is which:
 >
@@ -129,6 +137,8 @@ docker exec kafka-1 kafka-producer-perf-test.sh \
   --throughput 15000 \
   --producer-props bootstrap.servers=localhost:9092 acks=1
 ```
+
+> **Why:** `--throughput 15000` caps the producer so the 100k records land as a short, controlled burst rather than instantly, giving a predictable lag spike; `acks=1` (leader-only ack) keeps the producer fast for the demo — in production `acks=all` is the durable choice, but here we want load, not durability guarantees.
 
 ### 2.2 Start a slow consumer
 
@@ -198,6 +208,10 @@ curl -s 'http://localhost:9090/api/v1/query?query=max(kafka_consumergroup_lag) b
 
 ## Exercise 3 — Topic Operational Procedures
 
+> **What this shows:** These are the everyday operator moves — changing a config on a live topic and resetting a consumer group — done the safe, dynamic way. `kafka-configs.sh --alter` sets a per-topic dynamic override that takes effect without a restart, and the offset reset demonstrates that Kafka treats consumer position as mutable state you can rewind or fast-forward. Expect the retention change to apply instantly and the reset to force lag back up to the full backlog (`--to-earliest`) once the group is idle.
+>
+> **If a sharp student asks:** "Why must the group be inactive to reset offsets, and does the retention change delete data immediately?" Kafka refuses to reset a group with live members because offsets are owned by the active members via the group coordinator — a live consumer would just overwrite your reset on its next commit. And `retention.ms` only marks segments eligible for deletion; actual removal happens on the log-retention/cleaner cycle and never deletes the active (still-being-written) segment, so space frees up lazily, not on the spot.
+
 ### 3.1 Alter retention on a live topic
 
 ```bash
@@ -263,6 +277,10 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 
 ## Exercise 4 — Simulate Under-Replicated Partitions
 
+> **What this shows:** An under-replicated partition (URP) is one whose ISR (in-sync replica set) is smaller than its configured replication factor — a direct measure of lost redundancy. By stopping a broker you drop every replica it hosted out of the ISR, watch URP climb, then confirm it self-heals to zero when the broker rejoins and catches up. Expect URP to jump when kafka-2 stops and return to `0` after it restarts and its followers re-enter the ISR.
+>
+> **If a sharp student asks:** "Do under-replicated partitions block producers, and how is this different from offline/at-min-ISR partitions?" URP alone does not stop writes — the partition still has a leader and accepts data; production only blocks when the ISR shrinks below `min.insync.replicas` with `acks=all`, which is the more severe "at-min-ISR" condition. URP is the early-warning signal (redundancy degraded); offline partitions (no leader at all) and min-ISR write rejection are the escalations beyond it.
+
 ### 4.1 Baseline URP value
 
 ```bash
@@ -286,6 +304,8 @@ docker exec kafka-1 kafka-topics.sh \
   --describe --under-replicated-partitions
 ```
 
+> **Why:** the `sleep 15` gives the cluster time to expire the stopped broker's replicas from the ISR (governed by `replica.lag.time.max.ms`, default 30s but detected sooner as the socket drops) and for the exporter's next scrape to reflect it — query too fast and you may still see URP `0`.
+
 ### 4.3 Recover and verify
 
 ```bash
@@ -305,6 +325,10 @@ curl -s 'http://localhost:9090/api/v1/query?query=sum(kafka_topic_partition_unde
 ---
 
 ## Exercise 5 — Incident Triage Runbook
+
+> **What this shows:** This ties the metrics to muscle memory — a repeatable triage order (scope → control plane → durability → consumer impact → mitigation → recovery) applied to three classic incidents. Each drill pairs a symptom with one safe, reversible mitigation: scaling out a consumer group, rebalancing leadership, and shedding retention. The lesson is that good operations is fast pattern recognition backed by actions you can undo, not heroics.
+>
+> **If a sharp student asks:** "Why does preferred leader election fix imbalance, and is it safe on a live cluster?" Each partition has a *preferred* replica (the first in its assignment list); over time, broker restarts leave leadership clustered on whoever came back first, so `kafka-leader-election.sh --election-type preferred` simply moves each leader back to its preferred broker. It is safe and near-instant because it only reassigns leadership among existing in-sync replicas — no data moves — which is exactly why it replaced the old `kafka-preferred-replica-election.sh` removed in Kafka 4.
 
 Apply this structured 6-step runbook to each simulated incident below:
 
@@ -370,6 +394,10 @@ docker exec kafka-1 kafka-configs.sh \
 ---
 
 ## Exercise 6 — Alert Expressions
+
+> **What this shows:** Metrics only page you if they are wired to expressions with thresholds — this exercise turns the four signals you exercised into PromQL alert conditions. It reinforces which signals are "critical, wake someone up" (URP > 0, missing controller, broker offline) versus "warning" (lag over a budget), and shows how the controller check falls outside PromQL because it is a control-plane fact. Expect each expression to flip to firing when you trigger its condition (e.g. stopping a broker drives `count(kafka_server_brokerstate) < 3`).
+>
+> **If a sharp student asks:** "Won't `count(kafka_server_brokerstate) < 3` misfire, and why hard-code 3?" Yes — that is the teaching point: the expression is fragile because the series disappears when a broker's exporter target goes down, so `count()` can drop for scrape reasons unrelated to broker health, and the literal `3` breaks the moment you scale the cluster. Production-grade versions use `absent()`/`up` on the target, `for:` durations to suppress flaps, and cluster-size templating rather than a magic number.
 
 Create and test these Prometheus alert expressions in the Prometheus UI (`http://localhost:9090`):
 

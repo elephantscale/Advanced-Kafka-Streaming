@@ -54,6 +54,10 @@ docker exec kafka-1 kafka-topics.sh \
 
 ## Exercise 1 — Baseline Throughput Benchmark
 
+> **What this shows:** Establishes a throughput floor with unmodified producer/consumer defaults so every later tuning change is measured against a known baseline. `kafka-producer-perf-test.sh` ships records as fast as the broker will accept them (`--throughput -1`), so the result is bounded by batching, replication, and disk/network — not by the client. Expect a modest records/sec number here; the whole point is that it will jump dramatically once you batch and compress in Exercise 2.
+>
+> **If a sharp student asks:** With `acks=1` the producer is acknowledged as soon as the *leader* writes the record to its log — before followers replicate it — so a leader crash in that window loses data; this benchmark trades durability for speed and is not a fair comparison to `acks=all`. Also note `--record-size 1024` with random bytes is deliberately incompressible, so it understates the gains compression can give on real (repetitive) payloads.
+
 ### 1.1 Producer benchmark — default settings
 
 ```bash
@@ -84,6 +88,10 @@ docker exec kafka-1 kafka-consumer-perf-test.sh \
 ---
 
 ## Exercise 2 — Tuning for Throughput
+
+> **What this shows:** How the three big producer throughput levers interact: `batch.size` (max bytes per partition batch), `linger.ms` (how long the producer waits to fill a batch before sending), and `compression.type`. Larger batches plus a small linger let the producer amortize per-request overhead and ship fewer, bigger requests; compression then shrinks what crosses the network and hits disk. Expect a large jump over the Exercise 1 baseline — often several-fold — with the tuned config.
+>
+> **If a sharp student asks:** `batch.size` is a per-partition ceiling, not a target — `linger.ms` is what actually makes the producer wait to fill it; with `linger.ms=0` a batch is sent the instant a record is ready, so the big batch size does nothing under low load. Compression happens once per batch on the client and the broker stores the batch still compressed (zero-copy to consumers), which is why bigger batches also compress better: more redundancy per block.
 
 ### 2.1 Larger batches + linger + compression
 
@@ -141,6 +149,10 @@ done
 ---
 
 ## Exercise 3 — Consumer Lag and Remediation
+
+> **What this shows:** Consumer lag is the gap between the log-end offset (latest produced) and the group's committed offset — it grows whenever the group consumes slower than producers write. The `time.sleep(0.1)` per record caps one consumer at ~10 msg/s, so lag climbs fast; the fix is horizontal — add consumers to the *same group* so partitions are spread across more workers. Expect lag to rise steeply, then fall once the extra consumers join and rebalance takes shares of the 12 partitions.
+>
+> **If a sharp student asks:** Adding consumers stops helping once the group has as many members as the topic has partitions (12 here) — a partition is the unit of parallelism, so consumer #13 sits idle. The real levers past that point are repartitioning the topic (more partitions) or making per-record processing faster; you cannot out-scale a partition count.
 
 ### 3.1 Start a slow consumer
 
@@ -217,6 +229,10 @@ kill $SLOW_PID 2>/dev/null
 ---
 
 ## Exercise 4 — Eager vs Cooperative Rebalancing
+
+> **What this shows:** How a group redistributes partitions when membership changes. *Eager* (e.g. `roundrobin`, `range`) is stop-the-world: every consumer revokes *all* its partitions, then the whole group is reassigned from scratch — so all consumers pause during each rebalance. *Cooperative-sticky* revokes only the partitions that actually need to move and keeps the rest running, so most consumers never stop. Expect many REVOKE-everything events in eager mode and few, small revocations in cooperative mode.
+>
+> **If a sharp student asks:** Cooperative rebalancing is incremental — it can take *two* rebalance rounds (revoke the moving partitions in round one, assign them in round two) to reach a stable state, trading a little extra coordination for no global pause. KIP-848 (the `group.protocol=consumer` variant in 4.3) goes further: assignment moves off the clients to the group coordinator on the broker, so a slow or stuck consumer can no longer stall the whole group's rebalance the way a client-side assignor can.
 
 ### 4.1 Eager rebalancing
 
@@ -298,6 +314,10 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 
 ## Exercise 5 — Expanding Kafka with No Data Loss
 
+> **What this shows:** How to rebalance partition replicas across brokers without downtime using `kafka-reassign-partitions.sh`. Reassignment does not move data destructively — a new replica is added on the target broker, it replicates the full log until it joins the ISR, and only then is the old replica dropped, so a consumer/producer never sees a gap. The `--generate` step proposes a balanced plan; `--execute` applies it; `--verify` reports per-partition progress. Expect the topic to stay fully available throughout.
+>
+> **If a sharp student asks:** The `--throttle` value caps *replication* bandwidth (bytes/sec per broker) so the catch-up traffic doesn't starve live producer/consumer I/O; it sets `leader.replication.throttled.rate` / `follower.replication.throttled.rate` under the hood and must be removed afterward (re-run `--verify` once complete, which clears the throttle, or run `--execute` again to raise it). Because a new replica only counts once it's caught up and in the ISR, durability guarantees like `min.insync.replicas` are never weakened mid-reassignment.
+
 ### 5.1 Check partition assignment before expansion
 
 ```bash
@@ -333,6 +353,8 @@ docker cp /tmp/reassign-plan.json kafka-1:/tmp/reassign-plan.json
 cat /tmp/reassign-plan.json
 ```
 
+> **Why:** `--generate` only *proposes* a plan — it changes nothing. You must capture the proposed JSON and feed it to `--execute` (and later `--verify`); if you edited it by hand you could also craft a custom replica placement here. Keep this file: `--verify` needs the exact same plan to report progress and to clear the throttle at the end.
+
 ### 5.3 Execute with throttle to protect live producers
 
 ```bash
@@ -359,6 +381,10 @@ docker exec kafka-1 kafka-reassign-partitions.sh \
 ---
 
 ## Exercise 6 — Broker Failure and Failover
+
+> **What this shows:** What happens when a broker holding partition leaders dies. For every partition that broker led, the KRaft controller elects a new leader from that partition's ISR (in-sync replicas) and the affected replica drops out of the ISR; producers/consumers reconnect to the new leaders and continue. On restart, the returning broker replays its log, catches up, and rejoins the ISR. Expect a brief blip (seconds) but no lost messages, since with RF=3 each partition still has surviving in-sync copies.
+>
+> **If a sharp student asks:** In KRaft the *controller quorum* (not ZooKeeper) drives leader election, and a new leader can only come from the ISR — never a lagging out-of-sync replica — which is what prevents silent data loss (unclean leader election is off by default). For Question 4: with `acks=all` and `min.insync.replicas=3`, losing one of three brokers drops the ISR to 2, so producers get `NotEnoughReplicas` and *block* rather than lose data — the classic durability-vs-availability trade-off, which is why `min.insync.replicas=2` with RF=3 is the common production setting.
 
 ### 6.1 Start a continuous producer
 
@@ -393,6 +419,8 @@ watch -n 2 "docker exec kafka-1 kafka-topics.sh \
   | grep 'Leader:' | head -12"
 ```
 
+> **Why:** The `watch` loop lets you *see* leader election happen — the `Leader:` column for every partition that broker 2 led flips to a surviving broker within seconds, and those brokers disappear from the `Isr:` list. That live flip is the failover; querying once would miss the transition.
+
 ### 6.3 Restore and watch ISR recover
 
 ```bash
@@ -417,6 +445,10 @@ kill $PROD_PID 2>/dev/null
 ---
 
 ## Exercise 7 — End-to-End Latency Measurement
+
+> **What this shows:** End-to-end latency — the wall-clock time from `produce_ts` (set at send) until the consumer deserializes the record — reported as percentiles rather than an average, because tail latency (p95/p99) is what users actually feel. The 1 ms per-record sleep keeps load light so you measure the pipeline's inherent latency, not queueing delay. Expect low single-digit-to-tens-of-ms p50 locally, with p99 noticeably higher due to batching boundaries, commit intervals, and GC/scheduler jitter.
+>
+> **If a sharp student asks:** This measures one-way latency using two clocks in the *same* process, so there's no clock-skew error here — but on separate machines you'd need synchronized clocks (or measure round-trip and halve). Raising `linger.ms` improves throughput but *adds* directly to p99, because a record may sit waiting for its batch to fill: that waiting time is the fundamental throughput-vs-latency trade-off this lab is built around.
 
 ```python
 # e2e_latency.py

@@ -65,6 +65,10 @@ curl http://localhost:9000/minio/health/live    # MinIO health check
 
 ## Exercise 1 — Prepare Source Data (PostgreSQL)
 
+> **What this shows:** This builds the upstream system of record the JDBC source connector will poll. The `updated_at` timestamp column and the monotonic `id` are not incidental — they are exactly what the connector uses to track "what have I already read." Seeding 500 rows gives us a known baseline so later exercises can prove that inserts, pauses, and resumes are captured with no gaps or duplicates.
+>
+> **If a sharp student asks:** Kafka Connect is not true log-based CDC here — a JDBC poll connector only sees committed rows via `SELECT ... WHERE`, so it cannot capture `DELETE`s and can miss updates that don't bump `updated_at`. For real CDC (deletes, before/after images) you'd use a log-reading connector like Debezium that tails the Postgres WAL.
+
 ### 1.1 Create the orders table and seed data
 
 ```bash
@@ -100,6 +104,10 @@ SELECT COUNT(*) FROM orders;
 
 ## Exercise 2 — Deploy JDBC Source Connector
 
+> **What this shows:** Deploying a connector is just a POST of JSON config to the Connect REST API — no code, no restart. `mode: timestamp+incrementing` is the robust choice: the timestamp column detects updates while the incrementing `id` disambiguates rows sharing the same timestamp, so nothing is lost when many rows land in the same second. Expect the first poll to bulk-load all 500 seeded rows into `prod.postgres.orders`, then near-real-time capture of new inserts every `poll.interval.ms` (2s). The `InsertField` SMT stamps `source_table` onto every record to show single-message transforms in action.
+>
+> **If a sharp student asks:** Where is the read position kept? For a source connector it's the Connect worker's internal `connect-offsets` topic (a compacted topic), keyed by the connector's source-partition — here the last-seen `updated_at`/`id` pair — not in Postgres and not in the data topic. That's why the position survives worker restarts, and why deleting `connect-offsets` (or renaming the connector) makes it re-read from the beginning.
+
 ### 2.1 Deploy the connector
 
 ```bash
@@ -127,6 +135,8 @@ curl -X POST http://localhost:8083/connectors \
     }
   }' | jq .
 ```
+
+> **Why:** `tasks.max: 1` is not conservatism — a JDBC source in incrementing/timestamp mode cannot split a single table across tasks, because each task would race the same `id`/`updated_at` cursor. One task per table is the hard ceiling here; you scale by giving the connector more tables, not more tasks (revisited in Exercise 6).
 
 ### 2.2 Verify connector status
 
@@ -171,6 +181,10 @@ docker exec kafka-1 kafka-console-consumer.sh \
 
 ## Exercise 3 — Deploy S3 Sink Connector (MinIO)
 
+> **What this shows:** A sink connector consumes the Kafka topic as an ordinary consumer group and lands records into object storage — here MinIO speaking the S3 API. The interesting part is *file boundaries*: `flush.size` (record count) and `rotate.interval.ms` (wall-clock) decide when a file is closed, while the `TimeBasedPartitioner` with `timestamp.extractor: RecordField` reads `updated_at` from each record to build `year=/month=/day=/hour=` paths — the Hive-style layout that makes the output queryable by Athena/Spark. Expect JSON objects to appear under time-partitioned prefixes within ~30s.
+>
+> **If a sharp student asks:** Does a sink connector guarantee exactly-once? No — the S3 sink is effectively at-least-once and achieves *idempotent* output through deterministic file naming: the object name encodes the Kafka offset of the first record, so a replay after failure overwrites the same object rather than appending a duplicate. Connect commits consumer offsets only after a successful upload, so on crash it reprocesses from the last committed offset.
+
 ### 3.1 Create MinIO bucket
 
 ```bash
@@ -213,6 +227,8 @@ curl -X POST http://localhost:8083/connectors \
   }' | jq .
 ```
 
+> **Why:** `timestamp.extractor: RecordField` + `timestamp.field: updated_at` partitions by the *event's* business time, not the moment Connect happened to write it (`Wallclock`). This is what makes late-arriving or replayed data land in the correct hour partition — critical for correctness in a data lake, and a classic student "gotcha" when files show up under the wrong hour.
+
 ### 3.3 Verify files in MinIO
 
 ```bash
@@ -229,6 +245,10 @@ docker exec minio mc ls --recursive local/kafka-data-lake/
 ---
 
 ## Exercise 4 — Error Handling and Dead Letter Queue
+
+> **What this shows:** By default a single poison record halts the task — the connector goes `FAILED` and the whole pipeline stops. This exercise flips on Connect's error-handling framework so bad records are *tolerated*, logged, and routed to a `orders-dlq` topic instead of killing the task. The DLQ is a real Kafka topic, so it's durable and re-consumable. Expect the four malformed messages to land in `orders-dlq` while good records keep flowing to S3.
+>
+> **If a sharp student asks:** A DLQ only catches failures in the *convert + transform* stage (deserialization, SMT errors) — it does **not** catch failures inside the sink's `put()` (e.g. S3/MinIO being unreachable). Those are retried per `errors.retry.timeout` and then fail the task. So the DLQ is for bad *data*, not bad *infrastructure*, and that distinction is exactly what advanced students probe.
 
 ### 4.1 Update the sink connector to add DLQ configuration
 
@@ -256,6 +276,8 @@ curl -X PUT http://localhost:8083/connectors/orders-s3-sink/config \
     "aws.secret.access.key": "minioadmin"
   }' | jq .
 ```
+
+> **Why:** The DLQ only activates with `errors.tolerance: all` **and** a named `errors.deadletterqueue.topic.name` — set one without the other and records are either dropped silently or the DLQ is never created. Note also this is a PUT to `.../config` (full-config replace, upsert semantics), not a POST, so every key must be present or it's dropped from the connector.
 
 ### 4.2 Inject malformed records
 
@@ -307,6 +329,10 @@ docker exec kafka-1 kafka-console-consumer.sh \
 
 ## Exercise 5 — Connector Failure and Offset Resume
 
+> **What this shows:** Pausing stops the tasks but keeps the connector and its committed offsets intact — it is not a failure, it's a controlled stop. Rows inserted during the pause accumulate in Postgres; on resume the connector reads its stored cursor from `connect-offsets`, issues the next poll `WHERE updated_at/id > last-seen`, and catches up every missed row with no gaps and no duplicates. This is the exercise that makes offset management tangible.
+>
+> **If a sharp student asks:** What if you delete and recreate the connector under the same name? It resumes from the *same* stored offset, because source offsets are keyed by the source-partition (the table), not by the connector's lifecycle — the position lives in `connect-offsets`, which outlives the connector. To truly re-read from scratch you must reset that offset (delete/override the offset entry) or use the Connect offsets REST endpoint, not just recreate the connector.
+
 ### 5.1 Pause the source connector
 
 ```bash
@@ -349,6 +375,10 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ---
 
 ## Exercise 6 — Task Scaling Discussion
+
+> **What this shows:** Setting `tasks.max: 3` on the JDBC source is a deliberate anticlimax — check `/status` and you'll still see exactly **one** running task. `tasks.max` is only a *ceiling*; the connector decides how many tasks it can actually create, and an incrementing/timestamp JDBC source is capped at one task per table. The lesson: throughput scaling depends on the connector's ability to partition its work, not on the number you ask for.
+>
+> **If a sharp student asks:** Which connectors scale linearly with `tasks.max`? Ones with independently splittable work — a **sink** connector scales up to the number of topic partitions (each task owns a subset, like any consumer group), and sources with multiple tables/files/shards spread those across tasks. So the real ceiling is `min(tasks.max, number of partitionable work units)`; asking for more tasks than partitions just leaves tasks idle.
 
 ```bash
 # Insert 5000 rows and measure ingestion time
