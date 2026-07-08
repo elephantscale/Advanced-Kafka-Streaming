@@ -26,7 +26,7 @@ Elephant Scale
 - Goal: minimize consumer CPU overhead for filtering unwanted messages
 
 > This is a real-world telecom, IoT, and financial data challenge.
-
+![](../images/pexels-julia-fuchs-19936537-7394229.jpg)
 ---
 
 ## Fan-Out, Intuitively — The Mailroom
@@ -43,7 +43,7 @@ The whole module is one question: **where do you pay — storage (copies) or CPU
 
 > At 10M msg/sec, "photocopy everything" isn't just wasteful — it's the difference between
 > 3 servers and 30.
-
+![](../images/pexels-tima-miroshnichenko-6170178.jpg)
 ---
 
 ## Topic Design Options
@@ -70,7 +70,7 @@ Key = customer_segment  → consumer reads only their segment's partitions
 ```
 
 **Anti-pattern:** random or null keys → even distribution but no co-location, no filtering leverage.
-
+![](../images/pexels-ingo-14721.jpg)
 ---
 
 ## Header-Based Filtering
@@ -126,7 +126,7 @@ The header-skip win isn't abstract — price it out at **10M msg/sec, 10 consume
 
 > At fan-out scale, a **metadata-level** decision (skip before deserialize) dwarfs any
 > micro-optimization *inside* the consumer. Filter early, filter cheap.
-
+![](../images/pexels-nicolas-foster-65973708-36673239.jpg)
 ---
 
 ## Schema-Based Filtering
@@ -167,7 +167,7 @@ branches.get("emea").to("telemetry.emea");
 branches.get("apac").to("telemetry.apac");
 branches.get("amer").to("telemetry.amer");
 ```
-
+![](../images/pexels-narmin-aslanli-701641061-30606192.jpg)
 ---
 
 ## Flink SQL — Declarative Filtering
@@ -269,7 +269,7 @@ At 50,000 messages with 33% wanted (emea):
 | Header-skip, deserialize emea only | ~0.33× time | ~3× faster | Skip at metadata level |
 
 **Break-even point:** when wanted fraction > ~80%, full deserialization may be cheaper (no header overhead).
-
+![](../images/pexels-shvetsa-3683053.jpg)
 ---
 
 ## Broker & Topic Configuration for High Volume
