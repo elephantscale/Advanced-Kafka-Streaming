@@ -14,6 +14,8 @@ Elephant Scale
 - Modernizing legacy event-processing systems
 - Serverless Kafka: MSK Serverless and Confluent Cloud
 - Upgrading Kafka in the KRaft era: safe, fast rolling upgrades
+- Blue-green cluster migration for changes too big to do in place
+- Stream processing with Apache Flink and Flink SQL over Kafka
 - Future directions in event-driven architecture
 ![](../images/pexels-ann-h-45017-2646533.jpg)
 ---
@@ -316,6 +318,96 @@ The reframe to sell: fast and safe are not opposites. With RF=3 and min.insync.r
 
 ---
 
+## Blue-Green Cluster Migration
+
+Some changes are too big or too risky to do in place. **Blue-green migration** stands up an entirely new cluster beside the live one, moves everything over, and flips the clients — with the old cluster kept as instant rollback.
+
+- **Blue** = current production cluster (live). **Green** = new cluster (target version/config), initially idle.
+- A **rolling upgrade** changes the cluster you have, one broker at a time; **blue-green** builds a *new* cluster and migrates to it.
+- Use it for what rolling can't safely cover: **major version jumps**, the historical **ZooKeeper → KRaft** move, **cloud / region / provider migration**, or moving to a **managed / serverless** offering.
+
+> The payoff: a fully tested target and a guaranteed rollback — if green misbehaves, point the clients back at blue.
+
+![Blue-green migration](../images/placeholder-blue-green.png)
+
+Notes:
+Frame it as the counterpart to the rolling upgrade they just saw. Rolling = in-place, cheap, but limited. Blue-green = a whole new cluster, more expensive, but the safe path for a migration too big to risk in place — and you always have blue to fall back to. The classic trigger was ZooKeeper-to-KRaft; today it's often on-prem to cloud or a move to a managed service.
+
+---
+
+## Blue-Green — Mechanics & Challenges
+
+Migrating means replicating the data **and** translating the consumer offsets, so nobody reprocesses or skips on cutover:
+
+- **Replicate blue → green** with **MirrorMaker 2** (open source) or **Cluster Linking** (Confluent): topics, data, ACLs, and consumer-group offsets, kept continuously in sync.
+- **Offset translation** is the hard part — offsets differ across clusters. MM2 uses checkpoints to translate them; **Cluster Linking preserves offsets byte-for-byte**, making cutover much cleaner.
+- **Cut over** in order: consumers first (they catch up from mirrored data), then producers — or a coordinated flip. Keep blue running as fallback.
+- **Watch for:** duplicates / reordering in the cutover window (→ idempotent consumers), and the cost of running **two full clusters** at once.
+
+> The whole game is offset translation: get it wrong and consumers reprocess or skip on cutover.
+
+Notes:
+The single hardest thing is consumer-offset translation — "resume at offset 12345" is meaningless on a different cluster. MM2 approximates it with checkpoints; Cluster Linking makes it exact. Emphasize cutover order (consumers first), the fallback-to-blue safety net, and that you pay for two clusters during the migration. Note it's the same cross-cluster replication tech as the federation/DR slide, reused for migration.
+
+---
+
+## Stream Processing with Apache Flink
+
+Kafka moves and stores events; it does not *process* them. **Apache Flink** is the compute layer — a distributed, **true streaming** engine that processes each event as it arrives.
+
+- **Stream-first:** record-at-a-time, millisecond latency; batch is just a *bounded* stream.
+- **Stateful & event-time:** first-class keyed state, watermarks for out-of-order data, windowing, exactly-once via distributed checkpoints.
+- **Flink SQL:** continuous queries (filter, join, window, aggregate) over Kafka topics in plain SQL — no application code.
+- **The modern successor to ksqlDB** — Confluent is investing in Flink (Confluent Cloud for Flink, Tableflow) and de-emphasizing ksqlDB.
+
+> Kafka + Flink is the standard real-time stack: Kafka as the log and transport, Flink as the continuous compute over it.
+
+![Flink and Kafka](../images/placeholder-flink-kafka.png)
+
+Notes:
+The one-liner: Kafka transports and stores, Flink computes. Flink is stream-first — batch is a bounded stream, the opposite of Spark. Emphasize Flink SQL: continuous queries over Kafka topics with no code, which is why Confluent pushes it as the ksqlDB replacement. This connects directly to the filtering options in Module 7.
+
+---
+
+## Flink vs Spark vs Kafka Streams
+
+Three ways to process Kafka data — pick by latency, state, and how the logic is deployed:
+
+- **Apache Flink** — true streaming, lowest latency, rich state; a **cluster** you run. Best for real-time, stateful, event-driven pipelines and Flink SQL.
+- **Apache Spark** — **batch-first**; its streaming is **micro-batch** (small batches every few hundred ms to seconds). Huge ecosystem plus ML. Best for large-scale batch ETL and where seconds of latency are fine.
+- **Kafka Streams** — a **library**, not a cluster: you embed it in a JVM service. Lightest weight; best when the logic is **static** and lives inside one application (the Module 7 "Streams branching" option).
+
+> Rule of thumb: real-time + stateful → **Flink**; big batch + ML → **Spark**; static logic inside one app → **Kafka Streams**.
+
+Notes:
+The key contrast: Flink is stream-first (batch is a bounded stream); Spark is batch-first (streaming is micro-batches). Kafka Streams is the odd one out — a library, not a cluster, so no separate infra. If asked "doesn't Spark stream now?" — it has an experimental continuous mode, but micro-batch is the norm. Tie Kafka Streams back to the M7 filtering slide.
+
+---
+
+## Flink SQL over Kafka — Continuous Queries
+
+Flink SQL turns a Kafka topic into a table you query continuously — the query never ends; it emits results as new events arrive:
+
+```sql
+CREATE TABLE orders (order_id STRING, region STRING, amount DOUBLE)
+  WITH ('connector'='kafka', 'topic'='orders',
+        'properties.bootstrap.servers'='kafka-1:9092', 'format'='json');
+
+SELECT region, COUNT(*), SUM(amount)
+  FROM orders WHERE region = 'emea'
+  GROUP BY region;   -- runs forever, updating as events flow
+```
+
+- **Declarative filtering** — change the `WHERE` clause, no redeploy (the Module 7 "logic changes often" branch).
+- **Windowed aggregations, joins, and enrichment** — all in SQL, continuously.
+
+> This is the "filtering that changes often" branch of the Module 7 decision tree: SQL you edit, not code you redeploy.
+
+Notes:
+Show that a Kafka topic becomes a Flink table via the kafka connector, and a SELECT runs forever, emitting updates as events arrive. The payoff is declarative — change the WHERE clause without redeploying code, exactly the "logic churns → Flink SQL" branch from Module 7's filtering decision tree. A good place to tie today's filtering discussion to a live, modern tool.
+
+---
+
 ## Module 6 Summary
 
 - Multi-cluster federation via MirrorMaker 2 supports global, multi-cloud topologies
@@ -325,6 +417,8 @@ The reframe to sell: fast and safe are not opposites. With RF=3 and min.insync.r
 - Serverless Kafka (MSK Serverless, Confluent Cloud) eliminates infrastructure management
 - Modernizing legacy: strangler fig pattern with bridge connectors
 - KRaft-era upgrades roll one node at a time, waiting for URP=0; `min.insync.replicas`+`acks=all` keep it zero-downtime
+- Blue-green migration moves to a new cluster via MirrorMaker 2 / Cluster Linking with offset translation — the safe path for changes too big for an in-place upgrade
+- Apache Flink is the stream-processing compute layer for Kafka; Flink SQL runs continuous queries over topics — the modern successor to ksqlDB (Flink vs Spark = stream-first vs batch-first)
 - Future: Kafka + Iceberg, AI-native pipelines, data mesh
 
 ---
