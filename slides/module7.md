@@ -43,6 +43,8 @@ The whole module is one question: **where do you pay — storage (copies) or CPU
 
 > At 10M msg/sec, "photocopy everything" isn't just wasteful — it's the difference between
 > 3 servers and 30.
+ 
+
 ![](../images/pexels-tima-miroshnichenko-6170178.jpg)
 ---
 
@@ -284,7 +286,6 @@ At fan-out scale, configuration is the difference between a cluster that keeps u
 
 > Pick partition count from **target throughput ÷ per-consumer throughput**, then round up for headroom — repartitioning a live high-volume topic is disruptive.
 
-![Broker tuning knobs](../images/placeholder-broker-tuning.png)
 
 Notes:
 This is the "best practices" payoff of the whole module. The one number that matters most is partition count — size it for peak, because repartitioning a live high-volume topic is genuinely painful. Give them the formula out loud: target throughput ÷ per-consumer throughput, rounded up for headroom. Compression is the cheapest win on the slide — lz4 or zstd cut network and disk dramatically for near-zero effort, so it's the first knob I'd turn.

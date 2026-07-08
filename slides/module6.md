@@ -278,8 +278,6 @@ What KRaft changed:
 
 > Goal: a **zero-downtime rolling upgrade** — clients never notice, because a healthy cluster always keeps a leader and a full ISR for every partition.
 
-![Rolling upgrade](../images/placeholder-rolling-upgrade.png)
-
 Notes:
 The point to land: KRaft made upgrades *simpler* — one system to upgrade, not two — but the safety rule is unchanged. Frame an upgrade as just a controlled series of broker restarts: everything they learned about ISR and min.insync.replicas in Module 5 is exactly what keeps it zero-downtime. Quick engagement — ask the room: who's run a rolling upgrade, and what went wrong?
 
@@ -328,8 +326,6 @@ Some changes are too big or too risky to do in place. **Blue-green migration** s
 
 > The payoff: a fully tested target and a guaranteed rollback — if green misbehaves, point the clients back at blue.
 
-![Blue-green migration](../images/placeholder-blue-green.png)
-
 Notes:
 Frame it as the counterpart to the rolling upgrade they just saw. Rolling = in-place, cheap, but limited. Blue-green = a whole new cluster, more expensive, but the safe path for a migration too big to risk in place — and you always have blue to fall back to. The classic trigger was ZooKeeper-to-KRaft; today it's often on-prem to cloud or a move to a managed service.
 
@@ -361,8 +357,6 @@ Kafka moves and stores events; it does not *process* them. **Apache Flink** is t
 - **The modern successor to ksqlDB** — Confluent is investing in Flink (Confluent Cloud for Flink, Tableflow) and de-emphasizing ksqlDB.
 
 > Kafka + Flink is the standard real-time stack: Kafka as the log and transport, Flink as the continuous compute over it.
-
-![Flink and Kafka](../images/placeholder-flink-kafka.png)
 
 Notes:
 The one-liner: Kafka transports and stores, Flink computes. Flink is stream-first — batch is a bounded stream, the opposite of Spark. Emphasize Flink SQL: continuous queries over Kafka topics with no code, which is why Confluent pushes it as the ksqlDB replacement. This connects directly to the filtering options in Module 7.
