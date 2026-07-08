@@ -164,16 +164,23 @@ INSERT INTO orders (order_id, customer_id, amount, status)
 SELECT 'new-order-' || i, 'customer-' || (i % 50), random() * 500, 'PENDING'
 FROM generate_series(501, 550) AS t(i);"
 
+# Give the JDBC source connector one poll cycle (~5s) to pick up the new rows.
+sleep 8
+
+# Read from the beginning and filter to the new rows. We deliberately do NOT use a
+# consumer group here: a group with no committed offset starts at 'latest' and would
+# miss rows the connector delivered before this consumer subscribed.
 docker exec kafka-1 kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
   --topic prod.postgres.orders \
-  --group lab4-observer \
-  --timeout-ms 10000
+  --from-beginning --timeout-ms 15000 2>/dev/null | grep new-order
 ```
+
+> **Why the offset detail matters:** the connector is just a producer to the topic, and observing its output is just a consume. If you consume with a *new* group and no `--from-beginning`, the console consumer starts at `latest` and only sees records produced **after** it subscribes — so "insert first, consume second" shows nothing (a common false alarm that looks like a broken connector). Reading `--from-beginning` guarantees you see the rows regardless of timing. In production you'd keep a consumer *running* and watch the inserts arrive live.
 
 **Questions:**
 
-1. How many events were read on the first poll?
+1. How many `new-order` rows appeared in the topic? (Expect 50.)
 2. How quickly did new inserts appear in Kafka?
 3. What fields are present in each event?
 
