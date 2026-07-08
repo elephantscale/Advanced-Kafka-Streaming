@@ -248,11 +248,17 @@ GROUP BY region, window_start, window_end;
 
 ## Cleanup
 
+Stop and remove **only** the Flink containers, leaving the core Kafka cluster
+(and any other profiles) untouched:
+
 ```bash
-docker compose --profile flink down
+docker compose rm -sf flink-jobmanager flink-taskmanager
 ```
 
-The core Kafka cluster keeps running; only the Flink containers stop.
+> ⚠️ **Do not run `docker compose --profile flink down` for this.** `down` tears down
+> the *entire* project — it removes the core kafka-1/2/3 brokers and kafka-ui too (and
+> since broker storage is container-local here, that wipes your topics). The targeted
+> `rm -sf` above stops and removes just the two Flink services.
 
 ---
 
