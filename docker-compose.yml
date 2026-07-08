@@ -242,6 +242,41 @@ services:
         confluent-hub install --no-prompt confluentinc/kafka-connect-s3:latest || true
         exec /etc/confluent/docker/run
 
+  # ---- flink profile (OPTIONAL Lab 8): Flink JobManager + TaskManager + SQL client ----
+  # The flink-sql-connector-kafka jar is mounted onto Flink's classpath so Flink SQL can
+  # read/write Kafka topics. Start with: docker compose --profile flink up -d
+  # UNVERIFIED first cut — the Flink/connector version pairing must be tested on the VM.
+  flink-jobmanager:
+    image: flink:1.20.1-scala_2.12-java17
+    container_name: flink-jobmanager
+    profiles: ["flink"]
+    networks: [kafka]
+    ports:
+      - "8081:8081"   # Flink Web UI
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    volumes:
+      - ./flink/flink-sql-connector-kafka.jar:/opt/flink/lib/flink-sql-connector-kafka.jar:ro
+
+  flink-taskmanager:
+    image: flink:1.20.1-scala_2.12-java17
+    container_name: flink-taskmanager
+    profiles: ["flink"]
+    networks: [kafka]
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+    volumes:
+      - ./flink/flink-sql-connector-kafka.jar:/opt/flink/lib/flink-sql-connector-kafka.jar:ro
+
 networks:
   kafka:
     name: kafka
