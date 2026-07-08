@@ -54,6 +54,10 @@ alias k1='docker exec -i kafka-1'
 
 ## Exercise 1 — Log Segments on Disk
 
+> **What this shows:** A Kafka partition is nothing more than an append-only log on disk, physically split into *segments* — a rolling `.log` file plus `.index` (offset→byte) and `.timeindex` (timestamp→offset) sparse indexes. This matters because segments are the unit of retention, compaction, and recovery: only *closed* segments are ever eligible for deletion or compaction, while the newest **active** segment is always being appended to and is never compacted. Dumping the raw `.log` proves records are stored in plaintext (no encryption at rest by default) inside batched record sets.
+>
+> **If a sharp student asks:** "Why do we only see one `.log` file here?" — because 50 small records never crossed `segment.bytes` (default 1 GB) or `segment.ms`, so the first segment is still active; segments roll on size/time/index-full, and the base offset in the filename is the offset of the first record in that segment.
+
 ### 1.1 Create a test topic and produce events
 
 ```bash
@@ -118,6 +122,10 @@ docker exec kafka-1 kafka-dump-log.sh \
 
 ## Exercise 2 — Reading `__consumer_offsets`
 
+> **What this shows:** Consumer positions are not stored client-side — they are committed as messages into the internal `__consumer_offsets` topic, keyed by `(group, topic, partition)` with the committed offset as the value. This matters because it makes offset commits durable, replicated, and survivable across consumer restarts and rebalances. The topic is **log-compacted**, so only the latest offset per key is retained; expect to see one current record per partition your group consumed.
+>
+> **If a sharp student asks:** "Why compaction and not deletion?" — compaction keeps the *last* value per key forever (until a tombstone), so the group's latest committed position is never aged out by time-based retention, while stale intermediate commits are garbage-collected. There are 50 partitions by default (`offsets.topic.num.partitions`), and a group's records always land on the partition chosen by hashing the group id.
+
 ### 2.1 Create a consumer group and consume some events
 
 ```bash
@@ -165,6 +173,10 @@ k1 kafka-consumer-groups.sh \
 ---
 
 ## Exercise 3 — Transactional Producer
+
+> **What this shows:** Transactions give *atomicity* across multiple produces (and offset commits): either every record in the batch becomes visible or none does. A `transactional.id` binds the producer to a transaction coordinator, which tracks state in `__transaction_state` and writes control (commit/abort) markers into the data partitions. This matters for exactly-once pipelines: a `read_committed` consumer only reads up to the **LSO** (last stable offset) and never sees records from open or aborted transactions. Expect all four `txn-order` records to appear under `read_committed`.
+>
+> **If a sharp student asks:** "Do transactions give me deduplication?" — No. Atomicity and dedup are separate: idempotence (the `enable.idempotence` this producer also sets) prevents duplicate *appends*; transactions prevent *partial* visibility. They compose (EOS needs both), but the aborted-transaction records still physically sit in the log — the consumer just skips them via the abort markers and the LSO.
 
 ### 3.1 Write a transactional producer
 
@@ -274,6 +286,10 @@ k1 kafka-console-consumer.sh \
 
 ## Exercise 4 — Idempotent Producer (Deduplication)
 
+> **What this shows:** The idempotent producer is Kafka's real deduplication mechanism. The broker assigns a producer id (**PID**) and epoch, and tags every record with a per-partition monotonic **sequence number**; the dedup key is `(producerId, producerEpoch, partition, sequence)`. This matters because it makes producer retries safe: if a network hiccup causes a resend, the broker recognizes an already-seen sequence and drops the duplicate instead of appending it twice. With `enable.idempotence=True` you should see each logical event land exactly once on disk.
+>
+> **If a sharp student asks:** "Why does the sequence reset per partition, and what's the epoch for?" — sequences are tracked *per partition* because ordering/dedup is a per-partition guarantee; the **epoch** fences *zombie* producers — an older instance that comes back after a newer one took over the `transactional.id` is rejected because its epoch is stale. A `producerId` of `-1` in the dump means the batch was written by a non-idempotent producer.
+
 ### 4.1 Simulate a duplicate send
 
 ```python
@@ -330,6 +346,8 @@ k1 kafka-dump-log.sh \
   | grep -E 'producerId|baseSequence' | tail -5
 ```
 
+> **Why:** The dedup metadata lives in the *batch header*, not on individual records, so you have to dump with `--print-data-log` and read `producerId` / `producerEpoch` / `baseSequence` off the record batch. `baseSequence` is the sequence of the batch's first record; that is the value the broker compares against what it last saw for this `(PID, epoch, partition)` to decide duplicate-or-not.
+
 **Questions:**
 
 1. What `producerId` (PID) was assigned to our producer? (Read it from the dump above — `-1` means a non-idempotent batch.)
@@ -339,6 +357,10 @@ k1 kafka-dump-log.sh \
 ---
 
 ## Exercise 5 — ISR Changes During Broker Failure
+
+> **What this shows:** The **ISR** (in-sync replica set) is the subset of replicas fully caught up to the leader. When you stop a broker, the replicas it hosted fall behind and are evicted from the ISR after `replica.lag.time.max.ms` (~30s); the KRaft controller then elects a new leader *from the surviving ISR*. This matters for durability math: `acks=all` means the leader waits for all ISR members, and `min.insync.replicas` sets the floor — if the ISR shrinks below it, writes are rejected rather than silently under-replicated. Expect ISR to drop from 3 to 2, and (with `min.insync.replicas=2`) writes to still succeed.
+>
+> **If a sharp student asks:** "What if the ISR shrinks to 1 and that broker dies — isn't that data loss?" — Historically yes (the "last replica standing" problem); that is exactly what **ELR / KIP-966** (Exercise 5.4) addresses by tracking out-of-ISR replicas still known to hold data up to the high watermark, so a safe leader can be elected even when the ISR empties, instead of forcing an unclean election.
 
 ### 5.1 Observe current ISR
 
@@ -431,6 +453,10 @@ k1 kafka-topics.sh --bootstrap-server localhost:9092 \
 ---
 
 ## Exercise 6 — KRaft Metadata Log
+
+> **What this shows:** In KRaft mode there is no ZooKeeper — cluster metadata (topics, partitions, configs, ACLs, broker registrations, leadership) lives in an internal Kafka log, `__cluster_metadata`, replicated by a Raft quorum of controllers. This matters because metadata is now event-sourced the same way data is: brokers replay the log to build their in-memory state, and a periodic `.checkpoint` snapshot bounds replay time. The quorum tools show you the active controller and how far each replica has caught up.
+>
+> **If a sharp student asks:** "Why is KRaft better than ZooKeeper here?" — single system to operate and secure, no external quorum to keep in sync, far faster failover and metadata propagation (controllers tail a log instead of doing ZK watch fan-out), and metadata scales to millions of partitions because it is a compacted log with snapshots rather than a ZK znode tree.
 
 ```bash
 # View KRaft metadata log

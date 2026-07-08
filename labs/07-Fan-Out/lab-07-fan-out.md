@@ -58,6 +58,10 @@ docker compose ps
 
 ## Exercise 1 — Architecture Design: Single Topic vs Sub-Topics
 
+> **What this shows:** The two ends of the fan-out design spectrum — one broad topic that every consumer reads and filters, versus pre-split sub-topics where the broker delivers only the relevant slice. The core trade-off is CPU/network on the consumer side (broad topic makes everyone read everything) against storage, write amplification, and topic sprawl on the producer/ops side (N sub-topics means N× the writes and N× the storage). There is no universally "right" answer — the crossover depends on message rate, payload size, and the wanted/unwanted ratio, which the rest of the lab quantifies.
+>
+> **If a sharp student asks:** "Aren't the routing headers redundant if we also split into sub-topics?" Yes — headers matter for the single-topic + filter design; if you pre-split server-side (via Streams branching), consumers subscribe to their own topic and never inspect headers. This exercise seeds both patterns so later exercises can compare them.
+
 ### 1.1 Create the shared broad topic and 3 pre-filtered sub-topics
 
 ```bash
@@ -118,6 +122,8 @@ print('Produced 100,000 events with routing headers')
 python fanout_producer.py
 ```
 
+> **Why:** Every downstream filtering exercise depends on the `region` header this producer attaches to each record. Kafka does not enforce that a header exists or is correct — it is a pure producer-side convention, so if a producer ever forgets to set it the record is silently misrouted (skipped by every consumer). This is the single most important caveat to raise when teaching header-based fan-out.
+
 ### 1.3 Design trade-off discussion
 
 Complete this table for the **10M msg/sec, 10 consumer** scenario:
@@ -137,6 +143,10 @@ Complete this table for the **10M msg/sec, 10 consumer** scenario:
 ---
 
 ## Exercise 2 — Header-Based Filtering
+
+> **What this shows:** How a consumer reads only the record header to decide whether to keep a message, skipping the expensive JSON/Avro deserialization of the payload for records it doesn't want. Deserialization — not the network read — is usually the dominant per-message CPU cost, so avoiding it for the unwanted fraction is where the savings come from. Expect each region consumer to skip roughly two-thirds of records (three regions, evenly distributed) while never parsing those payloads.
+>
+> **If a sharp student asks:** "The record still crosses the network and sits in the fetch buffer — so what did we actually save?" Correct — header filtering saves consumer CPU (the deserialize step), not broker storage or network bandwidth; every consumer still fetches all partitions. If you need to cut network/storage too, you must pre-split server-side (sub-topics or Streams branching), which is the trade-off Exercise 1's table captures.
 
 ### 2.1 Consumer that skips by header (no deserialization for unwanted records)
 
@@ -207,6 +217,10 @@ wait
 
 ## Exercise 3 — Schema-Based Filtering (Discussion)
 
+> **What this shows:** A design-only comparison to header filtering: instead of an out-of-band header, the discriminator (region) lives inside a schema'd record, and the consumer deserializes only the small outer envelope before deciding whether to parse the heavier payload union. The point is guarantees — Schema Registry compatibility rules can enforce that the discriminator field always exists and has a valid type, closing the "producer forgot the header" hole that plagues header-based filtering. The cost is operational: maintaining and evolving union schemas across many consumer variants.
+>
+> **If a sharp student asks:** "Isn't reading the outer record the same skip trick as a header?" Not quite — the header approach skips deserialization entirely; the schema approach still deserializes the envelope, so it does slightly more work but buys you registry-enforced structure and evolution safety. It is a guarantees-vs-cost trade, not a raw-speed win.
+
 Review this approach without running it (requires Avro + Schema Registry):
 
 ```python
@@ -234,6 +248,10 @@ Review this approach without running it (requires Avro + Schema Registry):
 ---
 
 ## Exercise 4 — Benchmark: Duplication vs Filtering
+
+> **What this shows:** A head-to-head timing of "deserialize everything" versus "read the header and only deserialize what you want," so students see the crossover with their own numbers rather than taking it on faith. The key teaching point is that header filtering is NOT free — inspecting a header on every message has its own per-message cost — so it only pays off when a meaningful fraction of messages is unwanted. Break-even sits around an ~80% wanted fraction: above that, just deserializing everything can be cheaper than paying header-inspection overhead on messages you were going to keep anyway.
+>
+> **If a sharp student asks:** "Why is the local speedup so unimpressive?" Because with tiny JSON records the dominant cost is polling and network, not the JSON parse (the note under 4.1 says exactly this). The CPU win scales with payload size and deserialization expense — big nested JSON or Avro at 10M msg/sec is where header filtering shines; a 50k small-message local run sits at the flat end of that curve.
 
 ### 4.1 Benchmark full deserialization vs header-only skip
 
@@ -327,6 +345,10 @@ python benchmark_filtering.py
 ---
 
 ## Exercise 5 — KEDA Autoscaler (Kubernetes)
+
+> **What this shows:** How to scale consumer replicas automatically on a demand signal — consumer-group lag — rather than on CPU. KEDA reads the `kafka_consumergroup_lag` metric from Prometheus (fed by kafka-exporter) and adds/removes pods when lag crosses a threshold, which is the right signal for a queue-worker: lag is the backlog you are trying to burn down. In this Docker-only environment the KEDA/HPA part is design-and-discuss, but you can still prove the data source exists by querying the exact metric the ScaledObject uses.
+>
+> **If a sharp student asks:** "Why cap `maxReplicaCount` at the partition count?" Because a classic consumer group assigns each partition to at most one consumer, so replicas beyond the partition count for that group sit idle — you scale cost, not throughput. The exception is Share Groups (KIP-932), where multiple consumers cooperatively read the same partitions, lifting that one-consumer-per-partition cap and letting you scale past it.
 
 > **Note:** The KEDA autoscaler itself requires a Kubernetes cluster with KEDA
 > installed. If you don't have one, review the configuration and discuss the behavior

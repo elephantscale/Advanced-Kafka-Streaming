@@ -60,6 +60,10 @@ docker compose ps   # verify all containers are running
 
 ## Exercise 1 — Inspect Cluster Metadata
 
+> **What this shows:** You are reading cluster metadata straight from the source. In KRaft mode the cluster ID, broker registry, and topic/partition state live in an internal metadata log replicated by a controller quorum — there is no ZooKeeper. Expect to see three brokers and one active controller; `kafka-metadata-quorum.sh` exposes the Raft quorum itself (leader, voters, epoch), which is the authoritative view of cluster membership.
+>
+> **If a sharp student asks:** "Is the active controller also a broker?" In this lab the nodes are *combined* (`process.roles=broker,controller`), so yes — but in production you typically run dedicated controllers; the controller quorum is a separate Raft group from the data-plane brokers even when co-located.
+
 ### 1.1 List brokers
 
 ```bash
@@ -91,6 +95,10 @@ docker exec kafka-1 kafka-metadata-quorum.sh \
 ---
 
 ## Exercise 2 — Create Topics
+
+> **What this shows:** Topics are just named, partitioned logs. Partitions are the unit of parallelism and ordering; replication factor is the unit of durability. Creating `orders` with 6 partitions and RF 3 means the data survives losing any one broker, and up to 6 consumers in a group can read it in parallel. Expect the leaders and replicas to be spread roughly evenly across the three brokers.
+>
+> **If a sharp student asks:** "Why can't I just crank partitions up to 1000 to be safe?" Every partition costs open file handles, memory, and replication/metadata overhead, and raises end-to-end latency and rebalance/recovery time; partition count is easy to raise later but impossible to lower, so you size for realistic parallelism, not the maximum.
 
 ### 2.1 Create a basic topic
 
@@ -157,9 +165,15 @@ docker exec kafka-1 kafka-topics.sh \
   --config retention.ms=3600000  # 1 hour
 ```
 
+> **Why:** These aggressive compaction settings (`min.cleanable.dirty.ratio=0.01`, tiny `segment.bytes`, zero lag) exist only to force the log cleaner to act *inside the lab window*. Production defaults are far lazier — compaction is a background optimization, not a real-time guarantee — so never copy these numbers into a real cluster. Note also that a compacted topic uses a single partition here so every version of a given key lands in one log where the cleaner can collapse it.
+
 ---
 
 ## Exercise 3 — Produce and Consume Events
+
+> **What this shows:** This is the core Kafka contract: a producer sends keyed records, the key's hash picks the partition, and order is guaranteed *only within a partition*. Because `order-1` appears twice with the same key, both copies land in the same partition and are consumed in produce order. `--from-beginning` reads the log from offset 0; without it, a fresh consumer only sees records produced after it joins.
+>
+> **If a sharp student asks:** "Does same-key-same-partition hold if I later add partitions?" No — the default hash partitioner maps `hash(key) % numPartitions`, so increasing partition count re-routes existing keys to different partitions. Historical ordering per key is only preserved for data already written; that is one reason partition count is treated as near-immutable.
 
 ### 3.1 Produce events
 
@@ -205,6 +219,10 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ---
 
 ## Exercise 4 — Consumer Groups
+
+> **What this shows:** A consumer group is Kafka's load-balancing and fault-tolerance mechanism. The group coordinator assigns each partition to exactly one consumer in the group, so with 6 partitions and 2 consumers each reads ~3. This is why parallelism caps at the partition count — a third consumer helps, a seventh would sit idle. `kafka-consumer-groups.sh --describe` shows the assignment, committed offsets, and lag (log-end offset minus committed offset).
+>
+> **If a sharp student asks:** "What actually happens during a rebalance when I add the third consumer?" The coordinator revokes and reassigns partitions to rebalance ownership. With the legacy protocol this is stop-the-world (all consumers pause); with KIP-848 (Kafka 4, referenced below) the broker drives incremental reassignment so unaffected consumers keep processing.
 
 ### 4.1 Start two consumers in the same group
 
@@ -259,6 +277,10 @@ docker exec kafka-1 kafka-consumer-groups.sh \
 ---
 
 ## Exercise 5 — Retention Policies
+
+> **What this shows:** Kafka has two independent cleanup policies. `delete` (time/size-based) drops whole old segments; `compact` keeps the latest value per key and garbage-collects superseded ones. You alter retention on a live topic to prove config is dynamic, then watch compaction reduce `user-1`'s four versions down to just `v4`. Compaction is what makes a topic usable as a durable key-value changelog (the basis for Kafka Streams state stores).
+>
+> **If a sharp student asks:** "How do I *delete* a key under compaction, not just keep the latest?" You produce a tombstone — a record with that key and a `null` value. The cleaner retains it long enough for consumers to observe the delete (governed by `delete.retention.ms`, set very low here), then removes the key entirely.
 
 ### 5.1 Observe retention behavior
 
@@ -341,6 +363,8 @@ docker exec kafka-1 kafka-console-consumer.sh \
   --property print.key=true
 ```
 
+> **Why the filler records?** This is the step students most often "fix" incorrectly. The cleaner never touches the *active* (open) segment — the one currently being appended. The filler records exist purely to push the log past `segment.bytes` and roll new segments, which *closes* the segment holding the `user-1` updates so it finally becomes eligible for compaction. Skip the filler and you'll wrongly conclude compaction is broken.
+
 > **If you still see all versions of `user-1`:** compaction is a background process —
 > wait another 30–60s and re-run the consumer. Confirm the topic config with
 > `kafka-configs.sh --describe --entity-type topics --entity-name user-profiles`
@@ -356,6 +380,10 @@ docker exec kafka-1 kafka-console-consumer.sh \
 ---
 
 ## Exercise 6 — Partition Layout and Leader Distribution
+
+> **What this shows:** Only the partition *leader* handles reads and writes; followers just replicate. Kafka spreads leadership evenly across brokers so load is balanced — the `uniq -c` count should show each broker leading roughly the same number of partitions. When you stop broker 3, the controller promotes an in-sync replica to leader for its partitions (brief unavailability, no data loss), and those partitions become under-replicated until the broker returns.
+>
+> **If a sharp student asks:** "When broker 3 comes back, why don't leaders rebalance immediately?" Each partition has a *preferred* leader (first replica in the assignment list). On restart the replica rejoins as a follower and catches up; leadership only returns on the next preferred-leader election — automatic if `auto.leader.rebalance.enable=true`, otherwise forced with `kafka-leader-election.sh`.
 
 ### 6.1 Check leader distribution
 
@@ -397,6 +425,10 @@ docker exec kafka-1 kafka-topics.sh \
 
 ## Exercise 7 — Visualize the Cluster in Kafka UI
 
+> **What this shows:** The UI reads the exact same cluster metadata you queried on the CLI — brokers, the active controller, partition leaders/replicas/ISR, message contents, and consumer lag — but renders it visually. The goal is to build a mental map linking each `kafka-*.sh --describe` field to what an operator sees on a dashboard. Lag shown as a live chart is the fastest way to spot a stuck or slow consumer.
+>
+> **If a sharp student asks:** "Is the UI authoritative, or could it disagree with the CLI?" It is a read-only client hitting the same broker APIs, so the data matches; any lag you see is just its polling/refresh interval. It holds no state of its own — deleting the UI container loses nothing.
+
 So far you have inspected the cluster from the command line. Now see the same
 structures graphically — this builds intuition fast.
 
@@ -428,6 +460,10 @@ Click through and locate the following:
 > in Kafka 4.0 and must be explicitly enabled on the cluster (the lab cluster is
 > pre-configured with `group.share.enable=true` and the share-group coordinator).
 > If your environment does not have it enabled, treat this as a demonstration.
+
+> **What this shows:** Share groups (KIP-932) give Kafka true *queue* semantics. Unlike a consumer group — where one partition maps to one consumer — many share consumers cooperatively read the *same* partitions, and each record is acknowledged individually. Delivery is decoupled from partition count, so you can add more workers than partitions and still spread load. Expect the 20 jobs to fan out across both share consumers regardless of how few partitions `orders` has.
+>
+> **If a sharp student asks:** "So does a share group still guarantee per-key ordering like a consumer group?" No — that is the trade-off. Records are handed out per-record with individual acks (and redelivery on failure), so you gain queue-style work distribution and competing consumers but give up the strict per-partition ordering a consumer group provides.
 
 In Exercise 4, a **consumer group** split the partitions across consumers — each
 partition was owned by exactly one consumer. A **share group** is Kafka's native
