@@ -11,10 +11,13 @@
 > anti-pattern produces `NOT_ENOUGH_REPLICAS` as expected. The producer and URP watch run as
 > **standalone client containers** (not `docker exec` into a broker) so they survive the restarts.
 >
-> ⚠️ **Ex 4–6 newly added — verify before class.** These target the three real-world upgrade pains
-> (slow leader election, producer piling, data loss) using deliberate broker **kills**. They follow
-> the same standalone-client-container pattern, but the election-speed difference, latency spike,
-> and the `acks=1` loss (a race) should be **confirmed on the VM** before offering them.
+> ✅ **Ex 4–6 verified** (local Docker Compose). Graceful stop moves leaders instantly; an
+> ungraceful `kill` takes ~9–12 s (session-timeout detection) and drives the producer's max latency
+> to ~9 s before recovering — no loss with `acks=all`+idempotence. Two things to know: (1) a
+> restarted broker does **not** reclaim leadership, so each kill exercise first restores preferred
+> leaders (baked into the steps) or the kill demonstrates nothing; (2) the `acks=1` loss in Ex 6.2
+> is a real *production* exposure that usually shows `loss=0` on a fast local cluster — see the note
+> there, and `tools/kafka-loss/` to measure it for real.
 
 > **The core idea:** a rolling **restart** is a rolling **upgrade** minus the binary swap. The
 > observable behavior — leadership failover, under-replicated partitions recovering, clients
@@ -231,6 +234,17 @@ docker compose start kafka-1
 
 ### 4.3 Ungraceful kill — the controller must detect, then elect
 
+First, give kafka-1 its leaderships back. A broker that just restarted (4.2) does **not** reclaim
+leadership automatically, so without this step kafka-1 would lead **nothing** and the kill below
+would have nothing to elect (you'd see no delay — and conclude, wrongly, that kill is fast):
+
+```bash
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-leader-election.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --election-type preferred --all-topic-partitions
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --describe --topic upgrade.demo | grep Leader
+```
+
+Confirm kafka-1 leads ~2 partitions again, then kill it and watch how long the leaders take to move:
+
 ```bash
 docker compose kill kafka-1
 docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-2:9092,kafka-3:9092 --describe --topic upgrade.demo | grep Leader
@@ -265,6 +279,14 @@ leader-election speed and the unavailability window.
 > dupes), a generous `delivery.timeout.ms`, and enough `buffer.memory` to absorb the blip. But
 > buffer sizing only *delays* the problem; faster leader election is the real fix.
 
+First make sure the broker you're about to kill actually **leads** partitions — otherwise killing
+it causes no piling (a broker that led nothing has no producer traffic to stall). After the Ex 4
+kills, restore preferred leaders:
+
+```bash
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-leader-election.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --election-type preferred --all-topic-partitions
+```
+
 ### 5.1 Run a producer and capture its latency profile (T1)
 
 The producer runs as a **standalone client container** (all three brokers in `bootstrap.servers`)
@@ -279,6 +301,9 @@ docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer
 ```bash
 docker compose kill kafka-1
 ```
+
+Expect the perf line during the kill to show `max latency` jump to **~9 s** (the ungraceful
+detection window from Ex 4) with throughput briefly collapsing, then recover — and **no** errors.
 
 Watch the perf output (T1): the periodic lines show **max latency jump** while records pile waiting
 for the new leader, then settle once election completes. Restart and recover:
@@ -315,44 +340,60 @@ The latency spike is **much smaller** — because leadership moved before the br
 
 ### 6.1 Baseline with `acks=all` — no loss
 
-Produce a known count while killing a broker mid-send, then count what landed. Producer runs as a
-standalone container (kill a broker it is *not* pinned to):
+Use a **fresh, dedicated topic** so "how many did we send" (the fixed `--num-records`) can be
+compared directly to "how many are stored" (sum of end offsets). Do **not** reuse `upgrade.demo` —
+it already holds records from Exercises 1–5, so its offsets are not comparable to this run's count.
 
 ```bash
-docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.demo --num-records 200000 --record-size 200 --throughput 5000 --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=all &
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --create --if-not-exists --topic upgrade.durable --partitions 6 --replication-factor 3 --config min.insync.replicas=2
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.durable --num-records 200000 --record-size 200 --throughput 5000 --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=all &
 sleep 3
 docker compose kill kafka-2
 ```
 
-Wait for the producer to finish, restart the broker, then count messages actually stored:
+Wait for the producer to finish (it will report `200000 records sent`), restart the broker, then
+sum the stored records across partitions:
 
 ```bash
 docker compose start kafka-2
-docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka-1:9092,kafka-3:9092 --topic upgrade.demo --time -1
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka-1:9092,kafka-3:9092 --topic upgrade.durable --time -1 | awk -F: '{s+=$3} END{print "stored =", s}'
 ```
 
-With `acks=all`, every acknowledged record is accounted for — **no loss**.
+`stored` equals the `200000` the producer sent — with `acks=all` every acknowledged record is on
+≥ 2 replicas, so killing one broker loses **nothing**. (Verified: 200000 sent → 200000 stored.)
 
 ### 6.2 Contrast with `acks=1` on a min-ISR=1 topic
 
+> ⚠️ **This is the exposure, but it usually will NOT reproduce on a local cluster.** `acks=1` loss
+> requires the leader to die in the tiny window *after* it acks a record but *before* a follower
+> replicates it. On a local/Docker cluster followers fetch within ~1 ms, so that window is
+> effectively empty and you'll almost always see `loss=0` (tested repeatedly here). The exposure is
+> **real in production**, where replication lags (cross-AZ, network, load) widen that window to
+> thousands of records. Run this to see the mechanism and the *config*; measure the real thing on a
+> real cluster with `tools/kafka-loss/measure_loss.py` (acked-vs-stored reconciliation).
+
 ```bash
 docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --create --if-not-exists --topic upgrade.lossy --partitions 6 --replication-factor 3 --config min.insync.replicas=1
+# ensure kafka-1 actually LEADS partitions of this topic, or killing it exposes nothing:
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-leader-election.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --election-type preferred --all-topic-partitions
 docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.lossy --num-records 200000 --record-size 200 --throughput 5000 --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=1 &
 sleep 3
 docker compose kill kafka-1
 ```
 
-Restart, then compare the count the producer reported as sent against the stored end offsets:
+Restart, then compare what the producer sent (`200000`) against what is actually stored:
 
 ```bash
 docker compose start kafka-1
-docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka-2:9092,kafka-3:9092 --topic upgrade.lossy --time -1
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka-2:9092,kafka-3:9092 --topic upgrade.lossy --time -1 | awk -F: '{s+=$3} END{print "stored =", s, " (sent = 200000; any shortfall = acks=1 loss)"}'
 ```
 
 > **Why `acks=1` can come up short:** records acknowledged by the killed leader that had not yet
-> replicated are lost. This is the concrete answer to "what are the chances of losing data during
-> an upgrade" — with `acks=all` + min.ISR=2 it is **zero**; with `acks=1` you are exposed on every
-> broker you stop.
+> replicated are lost. Locally `stored` will usually still be `200000` (no observable loss — the
+> replication window is too small); in production the shortfall is real. Either way the lesson is
+> the *config*: with `acks=all` + min.ISR=2 + RF≥3 the exposure is **zero**; with `acks=1` you are
+> exposed on every broker you stop. To quantify it on your own cluster, use the reconciliation tool
+> in `tools/kafka-loss/` rather than end-offset counting.
 
 **Takeaway:** durability during upgrades is a *config* decision — `acks=all`, `min.insync.replicas=2`,
 RF≥3, `unclean.leader.election=false`. Get those right and a rolling upgrade loses nothing.
