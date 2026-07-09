@@ -5,9 +5,12 @@
 - **Difficulty:** Intermediate (optional — for the curious / fast finishers)
 - **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
-> ⚠️ **OPTIONAL LAB — verify before class.** This lab performs a rolling restart of the running
-> cluster. It is low-risk (no version changes in the core exercises), but the exact URP-recovery
-> timing and the anti-pattern behavior should be **confirmed on the VM** before offering it.
+> ✅ **OPTIONAL LAB — verified end-to-end.** Confirmed on the local Docker Compose stack: rolling
+> restart one broker at a time spikes URP then clears it within seconds while an `acks=all`
+> producer keeps going (only benign `NOT_LEADER_OR_FOLLOWER` retries, no lost availability), and
+> the two-brokers-down anti-pattern produces `NOT_ENOUGH_REPLICAS` as expected. The producer and
+> URP watch run as **standalone client containers** (not `docker exec` into a broker) so they
+> survive the restarts — see Exercise 1.
 
 > **The core idea:** a rolling **restart** is a rolling **upgrade** minus the binary swap. The
 > observable behavior — leadership failover, under-replicated partitions recovering, clients
@@ -69,23 +72,45 @@ docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 --create -
 
 ### 1.2 Start a continuous producer (T1)
 
-Runs ~5 minutes at 2,000 msg/s with `acks=all` — long enough to cover the roll:
+Runs ~5 minutes at 2,000 msg/s with `acks=all` — long enough to cover the roll. Run it as a
+**separate client container** on the Kafka network, bootstrapping **all three** brokers:
 
 ```bash
-docker exec kafka-1 kafka-producer-perf-test.sh --topic upgrade.demo --num-records 600000 --record-size 200 --throughput 2000 --producer-props bootstrap.servers=localhost:9092 acks=all
+docker run --rm --network kafka apache/kafka:4.0.0 \
+  /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.demo \
+  --num-records 600000 --record-size 200 --throughput 2000 \
+  --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=all
 ```
 
+> **Why not `docker exec kafka-1 ...`?** The producer must **not** run inside a broker you are
+> about to restart. In Exercise 2 you restart kafka-1; anything running via `docker exec kafka-1`
+> is killed the instant that container stops (SIGKILL, exit 137), so the "continuous producer"
+> would die at the first step and prove nothing. A standalone client container survives every
+> broker restart, and listing all three brokers in `bootstrap.servers` lets it re-route to a live
+> broker whenever one goes down.
+>
 > **Why `acks=all`:** it forces every write to be acknowledged by all in-sync replicas (≥
 > `min.insync.replicas`). If the cluster ever can't satisfy that, the producer will *tell you* —
-> that's the signal that separates a safe roll from an unsafe one.
+> that's the signal that separates a safe roll from an unsafe one. During the roll you'll see
+> brief `NOT_LEADER_OR_FOLLOWER` **retry** warnings as leadership moves — that's normal and the
+> producer recovers; what you must *not* see is `NOT_ENOUGH_REPLICAS` (that's Exercise 3).
 
 ### 1.3 Watch under-replicated partitions (T2)
 
+Also query from a client container with all three brokers, so the watch keeps working even while
+the broker you'd otherwise query is the one being restarted:
+
 ```bash
-watch -n 2 "docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 --describe --under-replicated-partitions"
+watch -n 2 "docker run --rm --network kafka apache/kafka:4.0.0 \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 \
+  --describe --under-replicated-partitions"
 ```
 
 At rest this is **empty** (URP = 0) — every partition has all 3 replicas in sync.
+
+> **Same reason as the producer:** a `docker exec kafka-1` watch goes blind exactly when you
+> restart kafka-1. Querying from a standalone container that lists all three brokers always reaches
+> a live one, so your go/no-go gate stays trustworthy throughout the roll.
 
 ---
 
