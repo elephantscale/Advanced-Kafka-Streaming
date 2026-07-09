@@ -1,16 +1,20 @@
 # Lab 9 (Optional) — Zero-Downtime Rolling Upgrade
 
 - **Module:** Optional / Day 4 (pairs with Module 6 "Upgrading Kafka in the KRaft era")
-- **Duration:** 15–25 minutes
+- **Duration:** 30–45 minutes
 - **Difficulty:** Intermediate (optional — for the curious / fast finishers)
 - **Kafka version:** 4.x (KRaft mode — ZooKeeper-free)
 
-> ✅ **OPTIONAL LAB — verified end-to-end.** Confirmed on the local Docker Compose stack: rolling
-> restart one broker at a time spikes URP then clears it within seconds while an `acks=all`
-> producer keeps going (only benign `NOT_LEADER_OR_FOLLOWER` retries, no lost availability), and
-> the two-brokers-down anti-pattern produces `NOT_ENOUGH_REPLICAS` as expected. The producer and
-> URP watch run as **standalone client containers** (not `docker exec` into a broker) so they
-> survive the restarts — see Exercise 1.
+> ✅ **Ex 1–3 verified end-to-end.** Confirmed on the local Docker Compose stack: rolling restart
+> one broker at a time spikes URP then clears it within seconds while an `acks=all` producer keeps
+> going (only benign `NOT_LEADER_OR_FOLLOWER` retries, no lost availability), and the two-brokers-down
+> anti-pattern produces `NOT_ENOUGH_REPLICAS` as expected. The producer and URP watch run as
+> **standalone client containers** (not `docker exec` into a broker) so they survive the restarts.
+>
+> ⚠️ **Ex 4–6 newly added — verify before class.** These target the three real-world upgrade pains
+> (slow leader election, producer piling, data loss) using deliberate broker **kills**. They follow
+> the same standalone-client-container pattern, but the election-speed difference, latency spike,
+> and the `acks=1` loss (a race) should be **confirmed on the VM** before offering them.
 
 > **The core idea:** a rolling **restart** is a rolling **upgrade** minus the binary swap. The
 > observable behavior — leadership failover, under-replicated partitions recovering, clients
@@ -27,6 +31,9 @@ By the end of this lab you will be able to:
 - Use **under-replicated partitions (URP)** as the go/no-go gate between nodes
 - Show that clients keep working throughout (RF=3 + `min.insync.replicas=2` + `acks=all`)
 - Demonstrate the failure mode when you **don't** wait — taking two replicas down at once
+- Explain why **graceful shutdown** makes leader election fast (vs an ungraceful kill)
+- See **producer message piling** during a restart and the configs that control it
+- Quantify the **data-loss exposure** of `acks=1` vs the zero-loss guarantee of `acks=all`
 
 ---
 
@@ -186,6 +193,172 @@ Once URP clears, the producer succeeds again. **Lesson: one broker at a time, al
 
 ---
 
+## Exercise 4 — Graceful vs ungraceful shutdown: leader-election speed
+
+> **What this shows:** *Why* an upgrade sometimes has a long unavailability window — and it is
+> usually not Kafka being slow, it is **how the broker was stopped**. A **graceful** stop triggers
+> *controlled shutdown*: the broker asks the controller to **move its partition leaderships to other
+> brokers before it exits**, so new leaders are in place almost immediately. An **ungraceful** kill
+> gives the controller no warning — it must first **detect** the broker is gone (missed heartbeats,
+> up to `broker.session.timeout.ms` ≈ 9s) and only *then* elect new leaders. Same cluster, very
+> different gap.
+>
+> **If a sharp student asks:** So during a rolling upgrade, always stop brokers gracefully? Yes —
+> controlled shutdown (`controlled.shutdown.enable=true`, the default) is what makes leader
+> hand-off fast. If your orchestration `kill`s pods/brokers, or controlled shutdown times out
+> (`controlled.shutdown.max.retries`), you pay the full detection delay on every node — a classic
+> "our upgrades are slow / cause errors" root cause.
+
+### 4.1 Note the current leaders
+
+```bash
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --describe --topic upgrade.demo | grep Leader
+```
+
+### 4.2 Graceful stop — leaders move *before* the broker exits
+
+```bash
+docker compose stop kafka-1
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-2:9092,kafka-3:9092 --describe --topic upgrade.demo | grep Leader
+```
+
+> **Why leaders already moved:** controlled shutdown migrated kafka-1's leaderships to kafka-2/3
+> *as part of stopping* — no partition waited for failure detection. Restart and wait for URP=0:
+
+```bash
+docker compose start kafka-1
+```
+
+### 4.3 Ungraceful kill — the controller must detect, then elect
+
+```bash
+docker compose kill kafka-1
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-2:9092,kafka-3:9092 --describe --topic upgrade.demo | grep Leader
+```
+
+> **Why this is slower:** kafka-1 died without warning, so for a few seconds the controller still
+> believes it leads its partitions — until heartbeats time out, it is fenced, and leaders are
+> re-elected. Re-run the `--describe` a few times and watch the leaders shift *after* the delay.
+
+Restart and recover:
+
+```bash
+docker compose start kafka-1
+```
+
+**Takeaway for a real upgrade:** stop gracefully — it is the single biggest lever on
+leader-election speed and the unavailability window.
+
+---
+
+## Exercise 5 — Producer piling during a restart
+
+> **What this shows:** The producer-side symptom of that unavailability window. While a partition
+> has no leader, the producer cannot send to it — records accumulate in its `buffer.memory` (32 MB
+> default) and latency spikes; if the window is long enough the buffer fills and the producer
+> **blocks** or errors. A **graceful** stop causes a small blip; an ungraceful **kill** causes a
+> much larger latency spike — the "piling" the client sees. Expect the perf producer's **max
+> latency** to jump during the kill and recover once the new leader is elected.
+>
+> **If a sharp student asks:** How do I stop the piling? Two levers: (1) shorten the window — stop
+> gracefully (Ex4); (2) make the producer resilient — `enable.idempotence=true` (safe retries, no
+> dupes), a generous `delivery.timeout.ms`, and enough `buffer.memory` to absorb the blip. But
+> buffer sizing only *delays* the problem; faster leader election is the real fix.
+
+### 5.1 Run a producer and capture its latency profile (T1)
+
+The producer runs as a **standalone client container** (all three brokers in `bootstrap.servers`)
+so it survives the kill and re-routes to a live broker:
+
+```bash
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.demo --num-records 300000 --record-size 200 --throughput 3000 --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=all enable.idempotence=true
+```
+
+### 5.2 While it runs, kill a broker (T3)
+
+```bash
+docker compose kill kafka-1
+```
+
+Watch the perf output (T1): the periodic lines show **max latency jump** while records pile waiting
+for the new leader, then settle once election completes. Restart and recover:
+
+```bash
+docker compose start kafka-1
+```
+
+> **Why a spike, not a failure:** with `enable.idempotence` + retries the producer holds and retries
+> the piled records, refreshing metadata until it finds the new leader — so you see latency, not
+> loss. On a long enough stall (or a full buffer) it would start erroring; that is when the client's
+> upstream backs up too.
+
+### 5.3 Compare: repeat 5.1–5.2 with a graceful `stop` instead of `kill`
+
+The latency spike is **much smaller** — because leadership moved before the broker left (Ex4).
+**This is the demo that connects "slow election" to "messages piling on the producer."**
+
+---
+
+## Exercise 6 — Chances of losing data: `acks=1` vs `acks=all`
+
+> **What this shows:** Exactly how much data an upgrade can lose, and why. With `acks=all` +
+> `min.insync.replicas=2` + RF=3, a committed record is on **at least two** replicas, so stopping
+> one broker cannot lose it — count in = count out, every time. With `acks=1`, a record is
+> acknowledged by the **leader alone**; if that leader (the broker you restart) fails before its
+> followers replicate, those acknowledged records are **gone**. Expect: `acks=all` loses nothing;
+> `acks=1` can come up short.
+>
+> **If a sharp student asks:** Is `acks=1` loss guaranteed? No — it is a race (leader must fail
+> after acking but before replicating), so you may need a couple of tries to see it. But the
+> *exposure* is real and `acks=all` **eliminates** it. Also keep `unclean.leader.election.enable=false`
+> so Kafka never promotes an out-of-sync replica (the other way upgrades lose data).
+
+### 6.1 Baseline with `acks=all` — no loss
+
+Produce a known count while killing a broker mid-send, then count what landed. Producer runs as a
+standalone container (kill a broker it is *not* pinned to):
+
+```bash
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.demo --num-records 200000 --record-size 200 --throughput 5000 --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=all &
+sleep 3
+docker compose kill kafka-2
+```
+
+Wait for the producer to finish, restart the broker, then count messages actually stored:
+
+```bash
+docker compose start kafka-2
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka-1:9092,kafka-3:9092 --topic upgrade.demo --time -1
+```
+
+With `acks=all`, every acknowledged record is accounted for — **no loss**.
+
+### 6.2 Contrast with `acks=1` on a min-ISR=1 topic
+
+```bash
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --create --if-not-exists --topic upgrade.lossy --partitions 6 --replication-factor 3 --config min.insync.replicas=1
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-producer-perf-test.sh --topic upgrade.lossy --num-records 200000 --record-size 200 --throughput 5000 --producer-props bootstrap.servers=kafka-1:9092,kafka-2:9092,kafka-3:9092 acks=1 &
+sleep 3
+docker compose kill kafka-1
+```
+
+Restart, then compare the count the producer reported as sent against the stored end offsets:
+
+```bash
+docker compose start kafka-1
+docker run --rm --network kafka apache/kafka:4.0.0 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka-2:9092,kafka-3:9092 --topic upgrade.lossy --time -1
+```
+
+> **Why `acks=1` can come up short:** records acknowledged by the killed leader that had not yet
+> replicated are lost. This is the concrete answer to "what are the chances of losing data during
+> an upgrade" — with `acks=all` + min.ISR=2 it is **zero**; with `acks=1` you are exposed on every
+> broker you stop.
+
+**Takeaway:** durability during upgrades is a *config* decision — `acks=all`, `min.insync.replicas=2`,
+RF≥3, `unclean.leader.election=false`. Get those right and a rolling upgrade loses nothing.
+
+---
+
 ## Stretch — A real version bump
 
 > **What this shows:** A true upgrade adds one step to the rolling restart — swapping the broker
@@ -226,13 +399,20 @@ docker exec kafka-1 kafka-topics.sh --bootstrap-server localhost:9092 --delete -
 
 You performed a zero-downtime rolling restart — the same procedure as a rolling upgrade minus the
 binary swap — restarting brokers one at a time and using URP=0 as the go/no-go gate. You saw the
-cluster stay available throughout (RF=3 + `min.insync.replicas=2` + `acks=all`), and you saw the
-failure mode when two replicas go down together. This is the operational discipline behind every
-safe Kafka upgrade.
+cluster stay available throughout (RF=3 + `min.insync.replicas=2` + `acks=all`), and the failure
+mode when two replicas go down together. Then you diagnosed the three problems that make real
+upgrades painful: **slow leader election** (fixed by graceful/controlled shutdown), **messages
+piling on the producer** (the symptom of the unavailability window, softened by producer
+resilience), and **data loss** (zero with `acks=all` + min.ISR=2 + RF≥3 + no unclean election;
+real with `acks=1`). This is the operational discipline — and the exact config knobs — behind
+every safe Kafka upgrade.
 
 ## Review Questions
 
 1. Why must you wait for under-replicated partitions to return to 0 before restarting the next broker?
 2. What combination of settings keeps the cluster available during the roll, and why?
 3. What happens to an `acks=all` producer when two of three brokers are down, and why is that the *correct* behavior?
-4. In a real version upgrade, what is the one extra step after all brokers run the new binary, and why is it last?
+4. Why does a **graceful** shutdown produce faster leader election than an ungraceful **kill**?
+5. During a restart, *why* do messages pile up on the producer, and what two levers reduce it?
+6. What are the chances of losing data during an upgrade with `acks=all` + `min.insync.replicas=2` vs with `acks=1`, and why?
+7. In a real version upgrade, what is the one extra step after all brokers run the new binary, and why is it last?
