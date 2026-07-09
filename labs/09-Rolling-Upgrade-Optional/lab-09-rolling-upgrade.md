@@ -37,6 +37,7 @@ By the end of this lab you will be able to:
 - Explain why **graceful shutdown** makes leader election fast (vs an ungraceful kill)
 - See **producer message piling** during a restart and the configs that control it
 - Quantify the **data-loss exposure** of `acks=1` vs the zero-loss guarantee of `acks=all`
+- **Diagnose and measure** data loss on a real cluster (including Kubernetes/Strimzi)
 
 ---
 
@@ -400,6 +401,71 @@ RF≥3, `unclean.leader.election=false`. Get those right and a rolling upgrade l
 
 ---
 
+## Exercise 7 — Diagnose data loss on a real cluster
+
+> **What this shows:** Exercises 1–6 proved the *config* that makes an upgrade lossless. This
+> exercise is the **operational answer to "are we losing data, and why?"** on a real cluster —
+> including a production **Kubernetes / Strimzi** one. The course ships a small toolkit for exactly
+> this in `tools/kafka-loss/`. The key idea it enforces: separate **true loss** (the broker *acked*
+> a record and then lost it) from a producer that merely **gave up** (never acked) or is **ignoring
+> its send callbacks** — three different owners, one measurement.
+>
+> **If a sharp student asks:** Why not just compare "records produced" to "records consumed"? Because
+> that conflates the three cases above and misses duplicates. The tool reconciles the exact set of
+> **acked** sequence numbers against what is actually stored, so `LOST`, `FAILED`, and `DUPES` are
+> reported separately — the difference between "fix the cluster", "fix the app", and "enable
+> idempotence".
+
+### 7.1 Scan the cluster for the settings that cause loss (read-only)
+
+`diagnose.sh` checks, in order of how often they are the culprit: `unclean.leader.election.enable`,
+`min.insync.replicas`, replication factor, under-replicated / under-min-isr partitions, Strimzi
+**ephemeral storage** (wipes a broker's log on pod restart), and *how* brokers are being restarted.
+
+```bash
+# This local Docker Compose cluster:
+KCLI_PREFIX="docker exec kafka-1 " BOOTSTRAP=localhost:9092 \
+  tools/kafka-loss/diagnose.sh --topic upgrade.demo
+
+# A production Strimzi cluster (auto-detects a broker pod in the namespace):
+NS=<your-namespace> tools/kafka-loss/diagnose.sh --topic <your-topic>
+```
+
+### 7.2 Measure loss during a roll — produce, then verify after recovery
+
+Produce sequence-numbered records with `acks=all` **while the cluster is being rolled**, then
+reconcile **after** it is healthy (URP=0) so an in-flight unavailable partition can't be misread as
+loss.
+
+> **Activate the virtualenv first** — `source .venv/bin/activate` (created per `labs/SETUP.md`).
+> `measure_loss.py` imports `confluent-kafka`, which lives in the venv, not the system Python.
+
+```bash
+# (a) during the roll — remembers exactly which records the broker acked:
+python3 tools/kafka-loss/measure_loss.py --bootstrap localhost:9092,localhost:9093,localhost:9094 \
+  --topic loss.probe --create --count 200000 --rate 3000 --produce-only --acked-file /tmp/acked.json
+
+# (b) once URP is back to 0 — reconcile acked vs stored:
+python3 tools/kafka-loss/measure_loss.py --bootstrap localhost:9092,localhost:9093,localhost:9094 \
+  --topic loss.probe --verify-only --acked-file /tmp/acked.json
+```
+
+Read the result:
+
+| Result | Cause | Fix |
+|--------|-------|-----|
+| `LOST > 0` (acked but missing) | unclean election / min.insync=1 / RF<3 / ephemeral / unsafe roll | fix the setting 7.1 flagged |
+| `LOST = 0`, `FAILED > 0` | producer gave up or ignores callbacks | raise `delivery.timeout.ms`, handle send errors |
+| `DUPES > 0` | idempotence off | set `enable.idempotence=true` |
+| all zero | no loss from this test | look at the consumer side (commit-before-process) |
+
+> **Production note:** the `acks=1` loss from Exercise 6.2 barely shows on a fast local cluster, but
+> is real under production replication lag — `measure_loss.py` is what catches it there, because it
+> tracks acked records exactly instead of counting end offsets. For Strimzi TLS/SASL setup and a
+> `kubectl run` probe-pod recipe, see `tools/kafka-loss/README.md` and `ERICSSON.md`.
+
+---
+
 ## Stretch — A real version bump
 
 > **What this shows:** A true upgrade adds one step to the rolling restart — swapping the broker
@@ -445,7 +511,9 @@ mode when two replicas go down together. Then you diagnosed the three problems t
 upgrades painful: **slow leader election** (fixed by graceful/controlled shutdown), **messages
 piling on the producer** (the symptom of the unavailability window, softened by producer
 resilience), and **data loss** (zero with `acks=all` + min.ISR=2 + RF≥3 + no unclean election;
-real with `acks=1`). This is the operational discipline — and the exact config knobs — behind
+real with `acks=1`). Finally you learned to **diagnose and measure loss on a real cluster**
+(`tools/kafka-loss/`) — separating true loss (acked-but-gone) from a producer that gave up or
+ignores its callbacks. This is the operational discipline — and the exact config knobs — behind
 every safe Kafka upgrade.
 
 ## Review Questions
@@ -457,3 +525,4 @@ every safe Kafka upgrade.
 5. During a restart, *why* do messages pile up on the producer, and what two levers reduce it?
 6. What are the chances of losing data during an upgrade with `acks=all` + `min.insync.replicas=2` vs with `acks=1`, and why?
 7. In a real version upgrade, what is the one extra step after all brokers run the new binary, and why is it last?
+8. When measuring loss, what is the difference between a record that is **LOST** (acked but missing) and one that **FAILED** (never acked), and which one points at the cluster vs the producer app?
